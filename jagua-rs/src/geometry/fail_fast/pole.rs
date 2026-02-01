@@ -1,11 +1,172 @@
 use std::collections::VecDeque;
+use std::f32::consts::PI;
 
-use crate::geometry::geo_traits::{CollidesWith, DistanceTo, SeparationDistance};
+use crate::geometry::geo_traits::{CollidesWith, DistanceTo};
 use crate::geometry::primitives::Circle;
+use crate::geometry::primitives::Edge;
+use crate::geometry::primitives::Point;
 use crate::geometry::primitives::Rect;
 use crate::geometry::primitives::SPolygon;
 
 use anyhow::{Result, anyhow};
+
+/// A point on a circle's boundary, stored with its angle from the circle's center
+#[derive(Clone, Copy, Debug)]
+struct CircleBoundaryPoint {
+    point: Point,
+    angle: f32,  // angle from circle center, in [-PI, PI]
+}
+
+/// Precomputed intersection data for a pole (circle)
+struct PoleIntersections {
+    center: Point,
+    radius: f32,
+    /// Boundary points sorted by angle
+    boundary_points: Vec<CircleBoundaryPoint>,
+}
+
+impl PoleIntersections {
+    /// Compute all intersection points of this pole with polygon edges and other poles
+    fn new(pole: &Circle, poly: &SPolygon, other_poles: &[Circle]) -> Self {
+        let center = pole.center;
+        let radius = pole.radius;
+        let mut boundary_points = Vec::new();
+
+        // Find intersections with polygon edges
+        for edge in poly.edge_iter() {
+            if let Some(pt) = circle_edge_intersection(center, radius, &edge) {
+                let angle = (pt.1 - center.1).atan2(pt.0 - center.0);
+                boundary_points.push(CircleBoundaryPoint { point: pt, angle });
+            }
+        }
+
+        // Find intersections with other poles
+        for other in other_poles {
+            if other.center == center && other.radius == radius {
+                continue; // skip self
+            }
+            let intersections = circle_circle_intersections(center, radius, other.center, other.radius);
+            for pt in intersections {
+                let angle = (pt.1 - center.1).atan2(pt.0 - center.0);
+                boundary_points.push(CircleBoundaryPoint { point: pt, angle });
+            }
+        }
+
+        // Sort by angle
+        boundary_points.sort_by(|a, b| a.angle.partial_cmp(&b.angle).unwrap());
+
+        Self {
+            center,
+            radius,
+            boundary_points,
+        }
+    }
+
+    /// For a candidate point, compute the constraint from this pole.
+    /// Returns 0.0 if point is on the wrong side of the chord (blocked).
+    /// Returns distance to chord if point is on the valid side.
+    fn compute_constraint(&self, candidate: Point) -> f32 {
+        if self.boundary_points.len() < 2 {
+            // No intersections - this pole doesn't constrain (shouldn't happen normally)
+            return f32::MAX;
+        }
+
+        // Compute angle from pole center to candidate
+        let angle = (candidate.1 - self.center.1).atan2(candidate.0 - self.center.0);
+
+        // Find the two boundary points whose sector contains this angle
+        let (p1, p2) = self.find_sector_endpoints(angle);
+
+        // The chord is the line segment from p1 to p2
+        let chord = Edge::new(p1, p2);
+
+        // Check which side of chord the candidate is on
+        let dist_center_to_chord = chord.distance_to(&self.center);
+        let dist_candidate_to_center = ((candidate.0 - self.center.0).powi(2) 
+                                       + (candidate.1 - self.center.1).powi(2)).sqrt();
+
+        if dist_center_to_chord > dist_candidate_to_center {
+            // Candidate is on the same side as center (inside the arc) - blocked
+            0.0
+        } else {
+            // Candidate is on the far side of chord - use chord distance as constraint
+            chord.distance_to(&candidate)
+        }
+    }
+
+    /// Find the two boundary points whose angular sector contains the given angle
+    fn find_sector_endpoints(&self, angle: f32) -> (Point, Point) {
+        let n = self.boundary_points.len();
+        
+        // Binary search for the first point with angle > given angle
+        let idx = self.boundary_points
+            .binary_search_by(|bp| bp.angle.partial_cmp(&angle).unwrap())
+            .unwrap_or_else(|i| i);
+
+        // The sector is between boundary_points[idx-1] and boundary_points[idx]
+        // Handle wraparound
+        let idx_before = if idx == 0 { n - 1 } else { idx - 1 };
+        let idx_after = idx % n;
+
+        (self.boundary_points[idx_before].point, self.boundary_points[idx_after].point)
+    }
+}
+
+/// Compute tangent point of a circle with an edge (line segment), if it exists.
+/// The circle is inscribed, so it touches the edge at most at one point (tangent).
+fn circle_edge_intersection(center: Point, radius: f32, edge: &Edge) -> Option<Point> {
+    let closest = edge.closest_point_on_edge(&center);
+    let dist_sq = (closest.0 - center.0).powi(2) + (closest.1 - center.1).powi(2);
+    let radius_sq = radius * radius;
+
+    // Check if distance from center to closest point equals radius (tangent)
+    // Allow small tolerance for floating point
+    if (dist_sq - radius_sq).abs() < radius_sq * 0.0001 {
+        Some(closest)
+    } else {
+        None
+    }
+}
+
+/// Compute intersection points of two circles
+fn circle_circle_intersections(c1: Point, r1: f32, c2: Point, r2: f32) -> Vec<Point> {
+    let mut result = Vec::new();
+
+    let dx = c2.0 - c1.0;
+    let dy = c2.1 - c1.1;
+    let d = (dx * dx + dy * dy).sqrt();
+
+    // Check if circles intersect
+    if d > r1 + r2 || d < (r1 - r2).abs() || d < 1e-10 {
+        return result;
+    }
+
+    // Distance from c1 to the line through intersection points
+    let a = (r1 * r1 - r2 * r2 + d * d) / (2.0 * d);
+    let h_sq = r1 * r1 - a * a;
+    
+    if h_sq < 0.0 {
+        return result;
+    }
+    
+    let h = h_sq.sqrt();
+
+    // Point on line between centers at distance a from c1
+    let px = c1.0 + a * dx / d;
+    let py = c1.1 + a * dy / d;
+
+    // Perpendicular direction
+    let perp_x = -dy / d;
+    let perp_y = dx / d;
+
+    // Two intersection points
+    result.push(Point(px + h * perp_x, py + h * perp_y));
+    if h > 1e-10 {
+        result.push(Point(px - h * perp_x, py - h * perp_y));
+    }
+
+    result
+}
 
 ///Generates a set of 'poles' for a shape according to specified coverage limits.
 ///See [`compute_pole`] for details on what a 'pole' is.
@@ -46,12 +207,19 @@ pub fn generate_surrogate_poles(
     Ok(all_poles)
 }
 
-/// Computes the *pole* - the largest circle which is both inside of `shape` while being outside all other `poles`.
+/// Computes the *pole* - the largest circle which is both inside of `shape` 
+/// while respecting chord constraints from existing poles (allowing controlled overlap).
 /// Closely related to [Pole of Inaccessibility (PoI)](https://en.wikipedia.org/wiki/Pole_of_inaccessibility),
 /// and inspired by Mapbox's [`polylabel`](https://github.com/mapbox/polylabel) algorithm.
 pub fn compute_pole(shape: &SPolygon, poles: &[Circle]) -> Result<Circle> {
+    // Precompute intersection data for all existing poles
+    let pole_intersections: Vec<PoleIntersections> = poles
+        .iter()
+        .map(|p| PoleIntersections::new(p, shape, poles))
+        .collect();
+
     let square_bbox = shape.bbox.inflate_to_square();
-    let root = POINode::new(square_bbox, MAX_POI_TREE_DEPTH, shape, poles);
+    let root = POINode::new(square_bbox, MAX_POI_TREE_DEPTH, shape, &pole_intersections);
     let mut queue = VecDeque::from([root]);
     let mut best: Option<Circle> = None;
     let distance = |circle: &Option<Circle>| circle.as_ref().map_or(0.0, |c| c.radius);
@@ -64,7 +232,7 @@ pub fn compute_pole(shape: &SPolygon, poles: &[Circle]) -> Result<Circle> {
 
         //see if worth it to split
         if node.distance_upperbound() > distance(&best)
-            && let Some(children) = node.split(shape, poles)
+            && let Some(children) = node.split(shape, &pole_intersections)
         {
             queue.extend(children);
         }
@@ -86,18 +254,17 @@ struct POINode {
 }
 
 impl POINode {
-    fn new(bbox: Rect, level: usize, poly: &SPolygon, poles: &[Circle]) -> Self {
+    fn new(bbox: Rect, level: usize, poly: &SPolygon, pole_intersections: &[PoleIntersections]) -> Self {
         let radius = bbox.diameter() / 2.0;
 
-        let centroid_inside = poly.collides_with(&bbox.centroid())
-            && poles.iter().all(|c| !c.collides_with(&bbox.centroid()));
+        let centroid_inside = poly.collides_with(&bbox.centroid());
 
         let distance = {
             let distance_to_edges = poly.edge_iter().map(|e| e.distance_to(&bbox.centroid()));
 
-            let distance_to_poles = poles
+            let distance_to_poles = pole_intersections
                 .iter()
-                .map(|c| c.separation_distance(&bbox.centroid()).1);
+                .map(|pi| pi.compute_constraint(bbox.centroid()));
 
             let distance_to_border = distance_to_edges
                 .chain(distance_to_poles)
@@ -118,13 +285,13 @@ impl POINode {
         }
     }
 
-    fn split(&self, poly: &SPolygon, poles: &[Circle]) -> Option<[POINode; 4]> {
+    fn split(&self, poly: &SPolygon, pole_intersections: &[PoleIntersections]) -> Option<[POINode; 4]> {
         match self.level {
             0 => None,
             _ => Some(
                 self.bbox
                     .quadrants()
-                    .map(|qd| POINode::new(qd, self.level - 1, poly, poles)),
+                    .map(|qd| POINode::new(qd, self.level - 1, poly, pole_intersections)),
             ),
         }
     }
