@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::f32::consts::PI;
 
 use crate::geometry::geo_traits::{CollidesWith, DistanceTo};
 use crate::geometry::primitives::Circle;
@@ -45,10 +44,11 @@ impl PoleIntersections {
             if other.center == center && other.radius == radius {
                 continue; // skip self
             }
-            let intersections = circle_circle_intersections(center, radius, other.center, other.radius);
-            for pt in intersections {
-                let angle = (pt.1 - center.1).atan2(pt.0 - center.0);
-                boundary_points.push(CircleBoundaryPoint { point: pt, angle });
+            if let Some(pts) = circle_circle_intersections(center, radius, other.center, other.radius) {
+                for pt in pts {
+                    let angle = (pt.1 - center.1).atan2(pt.0 - center.0);
+                    boundary_points.push(CircleBoundaryPoint { point: pt, angle });
+                }
             }
         }
 
@@ -67,8 +67,9 @@ impl PoleIntersections {
     /// Returns distance to chord if point is on the valid side.
     fn compute_constraint(&self, candidate: Point) -> f32 {
         if self.boundary_points.len() < 2 {
-            // No intersections - this pole doesn't constrain (shouldn't happen normally)
-            return f32::MAX;
+            // Not enough intersections to form a chord - fall back to separation distance
+            let dist = self.center.distance_to(&candidate);
+            return (dist - self.radius).max(0.0);
         }
 
         // Compute angle from pole center to candidate
@@ -78,12 +79,18 @@ impl PoleIntersections {
         let (p1, p2) = self.find_sector_endpoints(angle);
 
         // The chord is the line segment from p1 to p2
-        let chord = Edge::new(p1, p2);
+        let chord = match Edge::try_new(p1, p2) {
+            Ok(e) => e,
+            Err(_) => {
+                // Degenerate chord - fall back to separation distance
+                let dist = self.center.distance_to(&candidate);
+                return (dist - self.radius).max(0.0);
+            }
+        };
 
         // Check which side of chord the candidate is on
         let dist_center_to_chord = chord.distance_to(&self.center);
-        let dist_candidate_to_center = ((candidate.0 - self.center.0).powi(2) 
-                                       + (candidate.1 - self.center.1).powi(2)).sqrt();
+        let dist_candidate_to_center = self.center.distance_to(&candidate);
 
         if dist_center_to_chord > dist_candidate_to_center {
             // Candidate is on the same side as center (inside the arc) - blocked
@@ -128,17 +135,16 @@ fn circle_edge_intersection(center: Point, radius: f32, edge: &Edge) -> Option<P
     }
 }
 
-/// Compute intersection points of two circles
-fn circle_circle_intersections(c1: Point, r1: f32, c2: Point, r2: f32) -> Vec<Point> {
-    let mut result = Vec::new();
-
+/// Compute intersection points of two circles.
+/// Returns None if circles don't intersect, or Some with one or two points.
+fn circle_circle_intersections(c1: Point, r1: f32, c2: Point, r2: f32) -> Option<[Point; 2]> {
     let dx = c2.0 - c1.0;
     let dy = c2.1 - c1.1;
     let d = (dx * dx + dy * dy).sqrt();
 
     // Check if circles intersect
     if d > r1 + r2 || d < (r1 - r2).abs() || d < 1e-10 {
-        return result;
+        return None;
     }
 
     // Distance from c1 to the line through intersection points
@@ -146,7 +152,7 @@ fn circle_circle_intersections(c1: Point, r1: f32, c2: Point, r2: f32) -> Vec<Po
     let h_sq = r1 * r1 - a * a;
     
     if h_sq < 0.0 {
-        return result;
+        return None;
     }
     
     let h = h_sq.sqrt();
@@ -159,13 +165,23 @@ fn circle_circle_intersections(c1: Point, r1: f32, c2: Point, r2: f32) -> Vec<Po
     let perp_x = -dy / d;
     let perp_y = dx / d;
 
-    // Two intersection points
-    result.push(Point(px + h * perp_x, py + h * perp_y));
-    if h > 1e-10 {
-        result.push(Point(px - h * perp_x, py - h * perp_y));
-    }
+    // Two intersection points (may be the same if h ≈ 0)
+    Some([
+        Point(px + h * perp_x, py + h * perp_y),
+        Point(px - h * perp_x, py - h * perp_y),
+    ])
+}
 
-    result
+/// Calculate net area contribution of a new pole (its area minus overlap with existing poles).
+/// Note: This slightly underestimates net area when the new pole covers intersections
+/// of existing poles, but is sufficient for the coverage stopping condition.
+fn net_pole_area(new_pole: &Circle, existing_poles: &[Circle]) -> f32 {
+    let total_area = new_pole.area();
+    let overlap: f32 = existing_poles
+        .iter()
+        .map(|p| new_pole.intersection_area(p))
+        .sum();
+    (total_area - overlap).max(0.0)
 }
 
 ///Generates a set of 'poles' for a shape according to specified coverage limits.
@@ -175,16 +191,16 @@ pub fn generate_surrogate_poles(
     n_pole_limits: &[(usize, f32)],
 ) -> Result<Vec<Circle>> {
     let mut all_poles = vec![shape.poi];
-    let mut total_pole_area = shape.poi.area();
+    let mut total_net_area = shape.poi.area();
 
     //Generate the poles until one of the pole number / coverage limits is reached
     loop {
         let next = compute_pole(shape, &all_poles)?;
 
-        total_pole_area += next.area();
+        total_net_area += net_pole_area(&next, &all_poles);
         all_poles.push(next);
 
-        let current_coverage = total_pole_area / shape.area;
+        let current_coverage = total_net_area / shape.area;
 
         //check if any limit in the number of poles is reached at this coverage
         let active_pole_limit = n_pole_limits
