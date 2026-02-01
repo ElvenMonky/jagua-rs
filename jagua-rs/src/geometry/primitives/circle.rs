@@ -74,6 +74,33 @@ impl Circle {
     pub fn diameter(&self) -> f32 {
         self.radius * 2.0
     }
+
+    /// Calculate the intersection area between this circle and another circle
+    pub fn intersection_area(&self, other: &Circle) -> f32 {
+        let d = self.center.distance_to(&other.center);
+        let r1 = self.radius;
+        let r2 = other.radius;
+
+        if d >= r1 + r2 {
+            return 0.0; // No intersection
+        }
+        if d <= (r1 - r2).abs() {
+            // One circle inside the other
+            let min_r = r1.min(r2);
+            return PI * min_r * min_r;
+        }
+
+        // Partial intersection
+        let r1_sq = r1 * r1;
+        let r2_sq = r2 * r2;
+        let d_sq = d * d;
+
+        let alpha = ((d_sq + r1_sq - r2_sq) / (2.0 * d * r1)).acos();
+        let beta = ((d_sq + r2_sq - r1_sq) / (2.0 * d * r2)).acos();
+
+        r1_sq * alpha + r2_sq * beta 
+            - 0.5 * ((r1 + r2 + d) * (-r1 + r2 + d) * (r1 - r2 + d) * (r1 + r2 - d)).sqrt()
+    }
 }
 
 impl Transformable for Circle {
