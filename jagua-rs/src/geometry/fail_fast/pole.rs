@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::f32::consts::PI;
 
 use crate::geometry::geo_traits::{CollidesWith, DistanceTo};
 use crate::geometry::primitives::Circle;
@@ -175,9 +176,9 @@ fn circle_circle_intersections(c1: Point, r1: f32, c2: Point, r2: f32) -> Option
 /// Calculate net area contribution of a new pole (its area minus overlap with existing poles).
 /// Note: This slightly underestimates net area when the new pole covers intersections
 /// of existing poles, but is sufficient for the coverage stopping condition.
-fn net_pole_area(new_pole: &Circle, existing_poles: &[Circle]) -> f32 {
+pub fn net_pole_area(new_pole: &Circle, poles: &[Circle]) -> f32 {
     let total_area = new_pole.area();
-    let overlap: f32 = existing_poles
+    let overlap: f32 = poles
         .iter()
         .map(|p| new_pole.intersection_area(p))
         .sum();
@@ -235,25 +236,26 @@ pub fn compute_pole(shape: &SPolygon, poles: &[Circle]) -> Result<Circle> {
         .collect();
 
     let square_bbox = shape.bbox.inflate_to_square();
-    let root = POINode::new(square_bbox, MAX_POI_TREE_DEPTH, shape, &pole_intersections);
+    let root = POINode::new(square_bbox, MAX_POI_TREE_DEPTH, shape, poles, &pole_intersections);
     let mut queue = VecDeque::from([root]);
-    let mut best: Option<Circle> = None;
-    let distance = |circle: &Option<Circle>| circle.as_ref().map_or(0.0, |c| c.radius);
+    let mut best: Option<(Circle, f32)> = None;
+    let area = |pair: &Option<(Circle, f32)>| pair.as_ref().map_or(0.0, |(_, a)| *a);
 
     while let Some(node) = queue.pop_front() {
         //check if better than current best
-        if node.distance > distance(&best) {
-            best = Some(Circle::try_new(node.bbox.centroid(), node.distance).unwrap());
+        if node.area > area(&best) {
+            best = Some((Circle::try_new(node.bbox.centroid(), node.distance).unwrap(), node.area));
         }
 
         //see if worth it to split
-        if node.distance_upperbound() > distance(&best)
-            && let Some(children) = node.split(shape, &pole_intersections)
+        if node.area_upperbound() > area(&best)
+            && let Some(children) = node.split(shape, poles, &pole_intersections)
         {
             queue.extend(children);
         }
     }
-    best.ok_or(anyhow!(
+
+    best.map(|(c, _)| c).ok_or(anyhow!(
         "no pole found with {} levels of recursion. Please check the input shape: {:?}",
         MAX_POI_TREE_DEPTH,
         &shape.vertices
@@ -267,10 +269,11 @@ struct POINode {
     pub bbox: Rect,
     pub radius: f32,
     pub distance: f32,
+    pub area: f32,
 }
 
 impl POINode {
-    fn new(bbox: Rect, level: usize, poly: &SPolygon, pole_intersections: &[PoleIntersections]) -> Self {
+    fn new(bbox: Rect, level: usize, poly: &SPolygon, poles: &[Circle], pole_intersections: &[PoleIntersections]) -> Self {
         let radius = bbox.diameter() / 2.0;
 
         let centroid_inside = poly.collides_with(&bbox.centroid());
@@ -293,26 +296,35 @@ impl POINode {
             }
         };
 
+        let area = if distance > 0.0 {
+            let candidate = Circle { center: bbox.centroid(), radius: distance };
+            net_pole_area(&candidate, poles)
+        } else {
+            0.0  // Outside polygon or blocked
+        };
+
         Self {
             bbox,
             level,
             radius,
             distance,
+            area,
         }
     }
 
-    fn split(&self, poly: &SPolygon, pole_intersections: &[PoleIntersections]) -> Option<[POINode; 4]> {
+    fn split(&self, poly: &SPolygon, poles: &[Circle], pole_intersections: &[PoleIntersections]) -> Option<[POINode; 4]> {
         match self.level {
             0 => None,
             _ => Some(
                 self.bbox
                     .quadrants()
-                    .map(|qd| POINode::new(qd, self.level - 1, poly, pole_intersections)),
+                    .map(|qd| POINode::new(qd, self.level - 1, poly, poles, pole_intersections)),
             ),
         }
     }
 
-    fn distance_upperbound(&self) -> f32 {
-        self.radius + self.distance
+    fn area_upperbound(&self) -> f32 {
+        let max_radius = (self.radius + self.distance).max(0.0);
+        PI * max_radius * max_radius
     }
 }
