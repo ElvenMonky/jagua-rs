@@ -5,7 +5,7 @@ use jagua_rs::collision_detection::hazards::filter::NoFilter;
 use jagua_rs::entities::Instance;
 use jagua_rs::geometry::convex_hull;
 use jagua_rs::geometry::fail_fast::{
-    SPSurrogate, SPSurrogateConfig, generate_piers, generate_surrogate_poles,
+    SPSurrogate, SPSurrogateConfig, generate_piers, generate_surrogate_poles, net_pole_area
 };
 use jagua_rs::geometry::geo_traits::TransformableFrom;
 use jagua_rs::geometry::primitives::SPolygon;
@@ -78,6 +78,23 @@ fn fast_fail_query_bench(c: &mut Criterion) {
             })
             .collect_vec();
 
+        // for (i, surrogate) in custom_surrogates.iter().enumerate() {
+        //     let total_area: f32 = surrogate.poles.iter().map(|p| p.area()).sum();
+        //     let item = instance.item(ITEMS_ID_TO_TEST[i]);
+        //     let mut net_area = 0.0f32;
+        //     for (i, pole) in surrogate.poles.iter().enumerate() {
+        //         net_area += net_pole_area(pole, &surrogate.poles[..i]);
+        //     }
+        //     println!(
+        //         "Item {}: {}/{} poles, coverage: {:.2}% (naive: {:.2}%)",
+        //         ITEMS_ID_TO_TEST[i],
+        //         surrogate.poles.len(),
+        //         n_ff_poles,
+        //         net_area / item.shape_cd.area * 100.0,
+        //         total_area / item.shape_cd.area * 100.0
+        //     );
+        // }
+
         let mut samples_cyclers = samples
             .iter()
             .map(|s| s.chunks(N_SAMPLES_PER_ITER).cycle())
@@ -146,8 +163,7 @@ pub fn create_custom_surrogate(
     };
 
     let convex_hull_indices = convex_hull::convex_hull_indices(simple_poly);
-    let mut poles = vec![simple_poly.poi];
-    poles.extend(generate_surrogate_poles(simple_poly, &sp_config.n_pole_limits).unwrap());
+    let poles = generate_surrogate_poles(simple_poly, &sp_config.n_pole_limits).unwrap();
 
     let piers = generate_piers(simple_poly, n_piers, &poles).unwrap();
     let convex_hull_area = SPolygon::new(

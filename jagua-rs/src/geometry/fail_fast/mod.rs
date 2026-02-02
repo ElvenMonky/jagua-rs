@@ -12,6 +12,9 @@ pub use pole::generate_surrogate_poles;
 pub use pole::compute_pole;
 
 #[doc(inline)]
+pub use pole::net_pole_area;
+
+#[doc(inline)]
 pub use sp_surrogate::SPSurrogate;
 
 #[doc(inline)]
