@@ -176,7 +176,7 @@ fn circle_circle_intersections(c1: Point, r1: f32, c2: Point, r2: f32) -> Option
 /// Calculate net area contribution of a new pole (its area minus overlap with existing poles).
 /// Note: This slightly underestimates net area when the new pole covers intersections
 /// of existing poles, but is sufficient for the coverage stopping condition.
-pub fn net_pole_area(new_pole: &Circle, poles: &[Circle]) -> f32 {
+fn net_pole_area(new_pole: &Circle, poles: &[Circle]) -> f32 {
     let total_area = new_pole.area();
     let overlap: f32 = poles
         .iter()
