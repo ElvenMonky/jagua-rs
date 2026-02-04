@@ -61,6 +61,10 @@ impl Circle {
         self.radius * self.radius * PI
     }
 
+    pub fn perimeter(&self) -> f32 {
+        2.0 * PI * self.radius
+    }
+
     pub fn bbox(&self) -> Rect {
         let (r, x, y) = (self.radius, self.center.0, self.center.1);
         Rect {
@@ -75,31 +79,56 @@ impl Circle {
         self.radius * 2.0
     }
 
-    /// Calculate the intersection area between this circle and another circle
-    pub fn intersection_area(&self, other: &Circle) -> f32 {
+    pub fn angle_to(&self, other: &Circle) -> f32 {
+        (other.center.1 - self.center.1).atan2(other.center.0 - self.center.0)
+    }
+
+    pub fn intersection_half_angle(&self, other: &Circle) -> f32 {
         let d = self.center.distance_to(&other.center);
-        let r1 = self.radius;
-        let r2 = other.radius;
-
-        if d >= r1 + r2 {
-            return 0.0; // No intersection
+        
+        if d < 1e-10 {
+            // Concentric circles
+            return if self.radius <= other.radius { PI } else { 0.0 };
         }
-        if d <= (r1 - r2).abs() {
-            // One circle inside the other
-            let min_r = r1.min(r2);
-            return PI * min_r * min_r;
+        
+        let cos_a = (self.radius * self.radius + d * d - other.radius * other.radius) 
+                    / (2.0 * self.radius * d);
+        
+        cos_a.clamp(-1.0, 1.0).acos()
+    }
+
+    pub fn arc_inside(&self, other: &Circle) -> f32 {
+        2.0 * self.intersection_half_angle(other) * self.radius
+    }
+
+    pub fn intersection_area(&self, other: &Circle) -> f32 {
+        let a1 = self.intersection_half_angle(other);
+        let a2 = other.intersection_half_angle(self);
+        
+        (a1 - a1.cos() * a1.sin()) * self.radius * self.radius +
+        (a2 - a2.cos() * a2.sin()) * other.radius * other.radius
+    }
+
+    pub fn intersection_points(&self, other: &Circle) -> Option<[Point; 2]> {
+        let a = self.intersection_half_angle(other);
+        
+        // No intersection points if disjoint (a ≈ 0) or fully contained (a ≈ π)
+        if a < 1e-9 || a > PI - 1e-9 {
+            return None;
         }
-
-        // Partial intersection
-        let r1_sq = r1 * r1;
-        let r2_sq = r2 * r2;
-        let d_sq = d * d;
-
-        let alpha = ((d_sq + r1_sq - r2_sq) / (2.0 * d * r1)).acos();
-        let beta = ((d_sq + r2_sq - r1_sq) / (2.0 * d * r2)).acos();
-
-        r1_sq * alpha + r2_sq * beta 
-            - 0.5 * ((r1 + r2 + d) * (-r1 + r2 + d) * (r1 - r2 + d) * (r1 + r2 - d)).sqrt()
+        
+        let a12 = self.angle_to(other);
+        
+        Some([
+            Point(
+                self.center.0 + self.radius * (a12 + a).cos(),
+                self.center.1 + self.radius * (a12 + a).sin(),
+            ),
+            Point(
+                self.center.0 + self.radius * (a12 - a).cos(),
+                self.center.1 + self.radius * (a12 - a).sin(),
+            ),
+        ])
     }
 }
 
