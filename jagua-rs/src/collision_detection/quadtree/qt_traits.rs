@@ -1,4 +1,4 @@
-use crate::geometry::geo_traits::CollidesWith;
+use crate::geometry::geo_traits::{CollidesWith, DistanceTo};
 use crate::geometry::primitives::Rect;
 use crate::geometry::primitives::{Circle, Edge, Point};
 use std::cmp::Ordering;
@@ -6,15 +6,59 @@ use std::cmp::Ordering;
 /// Common trait for all geometric primitives that can be directly queried in the quadtree
 /// for collisions with the edges of the registered hazards. These include: [Rect], [Edge] and [Circle].
 pub trait QTQueryable: CollidesWith<Edge> + CollidesWith<Rect> {
-    /// Checks
+    /// Checks which quadrants the entity collides with.
     fn collides_with_quadrants(&self, _r: &Rect, qs: [&Rect; 4]) -> [bool; 4] {
         debug_assert!(_r.quadrants().iter().zip(qs.iter()).all(|(q, r)| *q == **r));
         qs.map(|q| self.collides_with(q))
     }
+
+    /// Returns true if pigeonhole principle guarantees collision:
+    /// entity_presence + haz_presence > 1.0
+    fn guarantees_collision(&self, _bbox: &Rect, _haz_presence: f32) -> bool {
+        false
+    }
 }
 
-impl QTQueryable for Circle {}
-impl QTQueryable for Rect {}
+impl QTQueryable for Circle {
+    fn guarantees_collision(&self, bbox: &Rect, haz_presence: f32) -> bool {
+        if haz_presence <= 0.5 {
+            return false;
+        }
+        
+        let bb_area = bbox.area();
+        // Early exit: if max possible presence can't trigger, bail
+        if self.area() + bb_area * haz_presence <= bb_area {
+            return false;
+        }
+
+        let circle_bbox = self.bbox();
+        if circle_bbox.x_min >= bbox.x_min
+            && circle_bbox.y_min >= bbox.y_min
+            && circle_bbox.x_max <= bbox.x_max
+            && circle_bbox.y_max <= bbox.y_max {
+            return true;
+        }
+
+        // Count corners inside circle
+        let r_sq = self.radius * self.radius;
+        let corners = bbox.corners();
+        let n_inside = corners.iter()
+            .filter(|c| self.center.sq_distance_to(c) <= r_sq)
+            .count();
+
+        n_inside >= 3
+    }
+}
+
+impl QTQueryable for Rect {
+    fn guarantees_collision(&self, bbox: &Rect, haz_presence: f32) -> bool {
+        if let Some(intersection) = Rect::intersection(*self, *bbox) {
+            intersection.area() / bbox.area() + haz_presence > 1.0
+        } else {
+            false
+        }
+    }
+}
 
 impl QTQueryable for Edge {
     fn collides_with_quadrants(&self, r: &Rect, qs: [&Rect; 4]) -> [bool; 4] {

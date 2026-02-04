@@ -8,7 +8,7 @@ use std::ops::Not;
 /// Vector of `QTHazard`s, which always remains sorted by presence.
 /// <br>
 /// This is a performance optimization to be able to quickly return the "strongest" hazard
-/// Strongest meaning the highest [`QTHazPresence`] (`Entire` > `Partial` > `None`)
+/// Strongest meaning the highest [`QTHazPresence`] (`Entire` > `Partial(high)` > `Partial(low)` > `None`)
 #[derive(Clone, Debug, Default)]
 pub struct QTHazardVec {
     hazards: Vec<QTHazard>,
@@ -55,7 +55,7 @@ impl QTHazardVec {
     }
 
     #[inline(always)]
-    /// Returns the strongest hazard (if any) (`Entire` > `Partial` > `None`)
+    /// Returns the strongest hazard (if any) (`Entire` > `Partial(high)` > `Partial(low)` > `None`)
     /// Ignores any hazards that are deemed irrelevant by the filter.
     pub fn strongest(&self, filter: &impl HazardFilter) -> Option<&QTHazard> {
         debug_assert!(assert_caches_correct(self));
@@ -87,13 +87,15 @@ impl QTHazardVec {
 }
 
 fn order_by_descending_strength(qth1: &QTHazard, qth2: &QTHazard) -> Ordering {
-    let qth_presence_sortkey = |qth: &QTHazard| match qth.presence {
-        QTHazPresence::None => 0,
-        QTHazPresence::Partial(_) => 1,
-        QTHazPresence::Entire => 2,
+    // Sort by presence: Entire (2.0) > Partial(high) > Partial(low) > None (-1.0)
+    let qth_presence_sortkey = |qth: &QTHazard| -> ordered_float::OrderedFloat<f32> {
+        match &qth.presence {
+            QTHazPresence::None => ordered_float::OrderedFloat(-1.0),
+            QTHazPresence::Partial(p) => ordered_float::OrderedFloat(p.presence),
+            QTHazPresence::Entire => ordered_float::OrderedFloat(2.0),
+        }
     };
 
-    //sort by presence (Entire > Partial > None)
     qth_presence_sortkey(qth1)
         .cmp(&qth_presence_sortkey(qth2))
         .reverse()

@@ -9,15 +9,17 @@ pub struct QTHazPartial {
     pub edges: Vec<Edge>,
     /// A bounding box that guarantees all edges are contained within it. (used for fail fast)
     pub ff_bbox: Rect,
+    /// Lower bound on the fraction of the quadtree node's area blocked by this hazard.
+    pub presence: f32,
 }
 
 impl QTHazPartial {
-    pub fn from_entire_shape(shape: &SPolygon) -> Self {
+    pub fn from_entire_shape(shape: &SPolygon, presence: f32) -> Self {
         let edges = shape.edge_iter().collect();
         let ff_bbox = shape.bbox;
-        Self { edges, ff_bbox }
+        Self { edges, ff_bbox, presence }
     }
-    pub fn from_parent(parent: &QTHazPartial, restricted_edges: Vec<Edge>) -> Self {
+    pub fn from_parent(parent: &QTHazPartial, restricted_edges: Vec<Edge>, presence: f32) -> Self {
         debug_assert!(!restricted_edges.is_empty());
         debug_assert!(restricted_edges.iter().all(|e| parent.edges.contains(e)));
         let ff_bbox = {
@@ -56,6 +58,7 @@ impl QTHazPartial {
         Self {
             edges: restricted_edges,
             ff_bbox,
+            presence,
         }
     }
 

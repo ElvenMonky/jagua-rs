@@ -3,10 +3,22 @@ use crate::collision_detection::hazards::{HazKey, Hazard};
 use crate::collision_detection::quadtree::qt_partial_hazard::QTHazPartial;
 use crate::geometry::geo_enums::{GeoPosition, GeoRelation};
 use crate::geometry::geo_traits::CollidesWith;
-use crate::geometry::primitives::Rect;
+use crate::geometry::primitives::{Rect, SPolygon};
 use crate::util::assertions;
 use slotmap::SlotMap;
 use std::array;
+
+/// Computes the lower bound presence (area fraction) of a shape within a bounding box.
+fn compute_presence(shape: &SPolygon, bbox: &Rect) -> f32 {
+    let clamped_vertices = shape.clamp_to_bbox(bbox);
+    if clamped_vertices.len() < 3 {
+        return 0.0;
+    }
+    match SPolygon::new(clamped_vertices) {
+        Ok(poly) => (poly.area / bbox.area()).clamp(0.0, 1.0),
+        Err(_) => 0.0,
+    }
+}
 
 /// Representation of a [`Hazard`] in a [`QTNode`](crate::collision_detection::quadtree::QTNode)
 #[derive(Clone, Debug)]
@@ -34,11 +46,12 @@ pub enum QTHazPresence {
 impl QTHazard {
     /// Converts a [`Hazard`] into a [`QTHazard`], assuming it is for the root of the quadtree.
     pub fn from_root(qt_root_bbox: Rect, haz: &Hazard, hkey: HazKey) -> Self {
+        let presence = haz.shape.area / qt_root_bbox.area();
         Self {
             qt_bbox: qt_root_bbox,
             hkey,
             entity: haz.entity,
-            presence: QTHazPresence::Partial(QTHazPartial::from_entire_shape(&haz.shape)),
+            presence: QTHazPresence::Partial(QTHazPartial::from_entire_shape(&haz.shape, presence)),
         }
     }
 
@@ -70,9 +83,14 @@ impl QTHazard {
                 if let Some(quad_index) = enclosed_hazard_quadrant {
                     //The hazard is entirely enclosed within one quadrant,
                     //For this quadrant the QTHazard is equivalent to the original hazard, the rest are None
+                    let new_presence = haz_shape.area / quadrants[quad_index].area();
                     array::from_fn(|i| {
                         let presence = if i == quad_index {
-                            self.presence.clone()
+                            QTHazPresence::Partial(QTHazPartial::from_parent(
+                                partial_haz,
+                                partial_haz.edges.clone(),
+                                new_presence,
+                            ))
                         } else {
                             QTHazPresence::None
                         };
@@ -97,14 +115,18 @@ impl QTHazard {
                             }
                         }
                         //If there are relevant edges, create a new QTHazard for this quadrant which is partially present
-                        colliding_edges.map(|edges| QTHazard {
-                            qt_bbox: q,
-                            presence: QTHazPresence::Partial(QTHazPartial::from_parent(
-                                partial_haz,
-                                edges,
-                            )),
-                            hkey: self.hkey,
-                            entity: self.entity,
+                        colliding_edges.map(|edges| {
+                            let new_presence = compute_presence(haz_shape, &q);
+                            QTHazard {
+                                qt_bbox: q,
+                                presence: QTHazPresence::Partial(QTHazPartial::from_parent(
+                                    partial_haz,
+                                    edges,
+                                    new_presence,
+                                )),
+                                hkey: self.hkey,
+                                entity: self.entity,
+                            }
                         })
                     });
 

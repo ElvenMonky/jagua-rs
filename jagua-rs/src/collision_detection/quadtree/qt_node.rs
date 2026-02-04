@@ -103,10 +103,14 @@ impl QTNode {
     ) -> Option<&HazardEntity> {
         match self.hazards.strongest(filter) {
             None => None,
-            Some(strongest_hazard) => match strongest_hazard.presence {
+            Some(strongest_hazard) => match &strongest_hazard.presence {
                 QTHazPresence::None => None,
                 QTHazPresence::Entire => Some(&strongest_hazard.entity),
-                QTHazPresence::Partial(_) => {
+                QTHazPresence::Partial(p_haz) => {
+                    if entity.guarantees_collision(&self.bbox, p_haz.presence) {
+                        return Some(&strongest_hazard.entity);
+                    }
+
                     // Condition to perform collision detection now or pass it to children:
                     match &self.children {
                         Some(children) => {
