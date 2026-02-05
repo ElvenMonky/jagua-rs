@@ -166,10 +166,8 @@ impl CDEngine {
             let v_qt_root = self.get_virtual_root(shape.bbox);
 
             // Check for edge intersections with the shape
-            for edge in shape.edge_iter() {
-                if v_qt_root.collides(&edge, filter).is_some() {
-                    return true;
-                }
+            if v_qt_root.collides(shape, filter).is_some() {
+                return true;
             }
 
             // Check for containment of the shape in any of the hazards
@@ -266,10 +264,8 @@ impl CDEngine {
         //Instead of each time starting from the quadtree root, we can use the virtual root (lowest level node which fully surrounds the shape)
         let v_quadtree = self.get_virtual_root(shape.bbox);
 
-        //Collect all colliding entities due to edge intersection
-        shape
-            .edge_iter()
-            .for_each(|e| v_quadtree.collect_collisions(&e, collector));
+        //Collect all colliding entities
+        v_quadtree.collect_collisions(shape, collector);
 
         //Check if there are any other collisions due to containment
         for qt_haz in v_quadtree.hazards.iter() {
