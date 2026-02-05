@@ -92,19 +92,7 @@ impl QTHazard {
                     })
                 } else {
                     //The hazard is active in multiple quadrants
-                    
-                    let x_mid = quadrants[0].x_min;
-                    let y_mid = quadrants[0].y_min;
 
-                    // Clamping directions per quadrant: (x_high, y_high)
-                    const CLAMP_DIRS: [(bool, bool); 4] = [
-                        (true, true),   // Q0 (++)
-                        (false, true),  // Q1 (-+)
-                        (false, false), // Q2 (--)
-                        (true, false),  // Q3 (+-)
-                    ];
-
-                    // First, collect edges and compute clamped points for each quadrant
                     let mut constricted_hazards = quadrants.map(|q| {
                         //For every quadrant, collect the edges that are colliding with it
                         let mut colliding_edges = None;
@@ -113,59 +101,48 @@ impl QTHazard {
                                 colliding_edges.get_or_insert_with(Vec::new).push(*edge);
                             }
                         }
-                        colliding_edges
-                    });
 
-                    // Compute clamped points for presence calculation
-                    let mut q_points: [Vec<Point>; 4] = Default::default();
-                    for vert in &partial_haz.points {
-                        for q in 0..4 {
-                            let (x_high, y_high) = CLAMP_DIRS[q];
-                            let x = if x_high { vert.0.max(x_mid) } else { vert.0.min(x_mid) };
-                            let y = if y_high { vert.1.max(y_mid) } else { vert.1.min(y_mid) };
-                            let p = Point(x, y);
+                        //If there are relevant edges, create a new QTHazard for this quadrant
+                        colliding_edges.map(|edges| {
+                            // Compute clamped points for this quadrant
+                            let mut points: Vec<Point> = Vec::new();
+                            for vert in &partial_haz.points {
+                                let x = vert.0.clamp(q.x_min, q.x_max);
+                                let y = vert.1.clamp(q.y_min, q.y_max);
+                                let p = Point(x, y);
 
-                            let len = q_points[q].len();
-                            if len >= 2 {
-                                let last = q_points[q][len - 1];
-                                let prev = q_points[q][len - 2];
-                                // Collinear on vertical line - update last point's y
-                                if last.0 == x && prev.0 == x {
-                                    q_points[q][len - 1].1 = y;
-                                // Collinear on horizontal line - update last point's x
-                                } else if last.1 == y && prev.1 == y {
-                                    q_points[q][len - 1].0 = x;
-                                } else if q_points[q].last() != Some(&p) {
-                                    q_points[q].push(p);
+                                let len = points.len();
+                                if len >= 2 {
+                                    // Collinear on vertical line - update last point's y
+                                    if points[len - 1].0 == x && points[len - 2].0 == x {
+                                        points[len - 1].1 = y;
+                                    // Collinear on horizontal line - update last point's x
+                                    } else if points[len - 1].1 == y && points[len - 2].1 == y {
+                                        points[len - 1].0 = x;
+                                    } else if points.last() != Some(&p) {
+                                        points.push(p);
+                                    }
+                                } else if points.last() != Some(&p) {
+                                    points.push(p);
                                 }
-                            } else if q_points[q].last() != Some(&p) {
-                                q_points[q].push(p);
                             }
-                        }
-                    }
 
-                    // Clean up wrap-around collinearity
-                    for verts in &mut q_points {
-                        while verts.len() > 1 && verts.first() == verts.last() {
-                            verts.pop();
-                        }
-                        if verts.len() >= 3 {
-                            let first = verts[0];
-                            let last = verts[verts.len() - 1];
-                            let prev = verts[verts.len() - 2];
-                            if (first.0 == last.0 && last.0 == prev.0) || (first.1 == last.1 && last.1 == prev.1) {
-                                verts.pop();
+                            // Clean up wrap-around collinearity
+                            while points.len() > 1 && points.first() == points.last() {
+                                points.pop();
                             }
-                        }
-                    }
+                            if points.len() >= 3 {
+                                let len = points.len();
+                                if (points[0].0 == points[len - 1].0 && points[len - 1].0 == points[len - 2].0)
+                                    || (points[0].1 == points[len - 1].1 && points[len - 1].1 == points[len - 2].1)
+                                {
+                                    points.pop();
+                                }
+                            }
 
-                    // Build QTHazards from edges and points
-                    let mut constricted_hazards: [Option<QTHazard>; 4] = std::array::from_fn(|i| {
-                        constricted_hazards[i].take().map(|edges| {
-                            let presence = SPolygon::calculate_area(&q_points[i]).abs() / quadrants[i].area();
-                            let points = std::mem::take(&mut q_points[i]);
+                            let presence = SPolygon::calculate_area(&points).abs() / q.area();
                             QTHazard {
-                                qt_bbox: quadrants[i],
+                                qt_bbox: q,
                                 presence: QTHazPresence::Partial(QTHazPartial::from_parent(
                                     partial_haz,
                                     edges,
