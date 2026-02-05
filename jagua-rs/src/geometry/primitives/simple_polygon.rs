@@ -190,49 +190,6 @@ impl SPolygon {
 
         (c_x, c_y).into()
     }
-
-    /// Clamps the polygon to a bounding box, returning vertices with intersection points
-    /// where edges cross the bbox boundaries.
-    pub fn clamp_to_bbox(&self, bbox: &Rect) -> Vec<Point> {
-        let mut result = Vec::new();
-
-        for edge in self.edge_iter() {
-            // Find all intersection points with bbox sides, sorted by distance from start
-            let mut intersections: Vec<Point> = bbox.sides().iter()
-                .filter_map(|side| edge.collides_at(side))
-                .filter(|p| *p != edge.start && *p != edge.end)
-                .collect();
-
-            intersections.sort_by(|a, b| {
-                edge.start.sq_distance_to(a)
-                    .partial_cmp(&edge.start.sq_distance_to(b))
-                    .unwrap()
-            });
-
-            // Add start point (clamped)
-            let clamped_start = Point(
-                edge.start.0.clamp(bbox.x_min, bbox.x_max),
-                edge.start.1.clamp(bbox.y_min, bbox.y_max),
-            );
-            if result.last() != Some(&clamped_start) {
-                result.push(clamped_start);
-            }
-
-            // Add intersection points in order
-            for point in intersections {
-                if result.last() != Some(&point) {
-                    result.push(point);
-                }
-            }
-        }
-
-        // Remove consecutive duplicates (including wrap-around)
-        while result.len() > 1 && result.first() == result.last() {
-            result.pop();
-        }
-
-        result
-    }
 }
 
 impl Transformable for SPolygon {

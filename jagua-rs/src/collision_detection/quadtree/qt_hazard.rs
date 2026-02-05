@@ -3,17 +3,10 @@ use crate::collision_detection::hazards::{HazKey, Hazard};
 use crate::collision_detection::quadtree::qt_partial_hazard::QTHazPartial;
 use crate::geometry::geo_enums::{GeoPosition, GeoRelation};
 use crate::geometry::geo_traits::CollidesWith;
-use crate::geometry::primitives::{Rect, SPolygon};
+use crate::geometry::primitives::{Point, Rect, SPolygon};
 use crate::util::assertions;
 use slotmap::SlotMap;
 use std::array;
-
-/// Computes the lower bound presence (area fraction) of a shape within a bounding box.
-fn compute_presence(shape: &SPolygon, bbox: &Rect) -> f32 {
-    let clamped_vertices = shape.clamp_to_bbox(bbox);
-    let area = SPolygon::calculate_area(&clamped_vertices).abs();
-    (area / bbox.area()).clamp(0.0, 1.0)
-}
 
 /// Representation of a [`Hazard`] in a [`QTNode`](crate::collision_detection::quadtree::QTNode)
 #[derive(Clone, Debug)]
@@ -84,6 +77,7 @@ impl QTHazard {
                             QTHazPresence::Partial(QTHazPartial::from_parent(
                                 partial_haz,
                                 partial_haz.edges.clone(),
+                                partial_haz.points.clone(),
                                 new_presence,
                             ))
                         } else {
@@ -98,9 +92,19 @@ impl QTHazard {
                     })
                 } else {
                     //The hazard is active in multiple quadrants
+                    
+                    let x_mid = quadrants[0].x_min;
+                    let y_mid = quadrants[0].y_min;
 
-                    // First lets find the quadrants where edges of the partial hazard are colliding with the quadrants.
-                    // These will also be partially present hazards.
+                    // Clamping directions per quadrant: (x_high, y_high)
+                    const CLAMP_DIRS: [(bool, bool); 4] = [
+                        (true, true),   // Q0 (++)
+                        (false, true),  // Q1 (-+)
+                        (false, false), // Q2 (--)
+                        (true, false),  // Q3 (+-)
+                    ];
+
+                    // First, collect edges and compute clamped points for each quadrant
                     let mut constricted_hazards = quadrants.map(|q| {
                         //For every quadrant, collect the edges that are colliding with it
                         let mut colliding_edges = None;
@@ -109,15 +113,64 @@ impl QTHazard {
                                 colliding_edges.get_or_insert_with(Vec::new).push(*edge);
                             }
                         }
-                        //If there are relevant edges, create a new QTHazard for this quadrant which is partially present
-                        colliding_edges.map(|edges| {
-                            let new_presence = compute_presence(haz_shape, &q);
+                        colliding_edges
+                    });
+
+                    // Compute clamped points for presence calculation
+                    let mut q_points: [Vec<Point>; 4] = Default::default();
+                    for vert in &partial_haz.points {
+                        for q in 0..4 {
+                            let (x_high, y_high) = CLAMP_DIRS[q];
+                            let x = if x_high { vert.0.max(x_mid) } else { vert.0.min(x_mid) };
+                            let y = if y_high { vert.1.max(y_mid) } else { vert.1.min(y_mid) };
+                            let p = Point(x, y);
+
+                            let len = q_points[q].len();
+                            if len >= 2 {
+                                let last = q_points[q][len - 1];
+                                let prev = q_points[q][len - 2];
+                                // Collinear on vertical line - update last point's y
+                                if last.0 == x && prev.0 == x {
+                                    q_points[q][len - 1].1 = y;
+                                // Collinear on horizontal line - update last point's x
+                                } else if last.1 == y && prev.1 == y {
+                                    q_points[q][len - 1].0 = x;
+                                } else if q_points[q].last() != Some(&p) {
+                                    q_points[q].push(p);
+                                }
+                            } else if q_points[q].last() != Some(&p) {
+                                q_points[q].push(p);
+                            }
+                        }
+                    }
+
+                    // Clean up wrap-around collinearity
+                    for verts in &mut q_points {
+                        while verts.len() > 1 && verts.first() == verts.last() {
+                            verts.pop();
+                        }
+                        if verts.len() >= 3 {
+                            let first = verts[0];
+                            let last = verts[verts.len() - 1];
+                            let prev = verts[verts.len() - 2];
+                            if (first.0 == last.0 && last.0 == prev.0) || (first.1 == last.1 && last.1 == prev.1) {
+                                verts.pop();
+                            }
+                        }
+                    }
+
+                    // Build QTHazards from edges and points
+                    let mut constricted_hazards: [Option<QTHazard>; 4] = std::array::from_fn(|i| {
+                        constricted_hazards[i].take().map(|edges| {
+                            let presence = SPolygon::calculate_area(&q_points[i]).abs() / quadrants[i].area();
+                            let points = std::mem::take(&mut q_points[i]);
                             QTHazard {
-                                qt_bbox: q,
+                                qt_bbox: quadrants[i],
                                 presence: QTHazPresence::Partial(QTHazPartial::from_parent(
                                     partial_haz,
                                     edges,
-                                    new_presence,
+                                    points,
+                                    presence,
                                 )),
                                 hkey: self.hkey,
                                 entity: self.entity,
