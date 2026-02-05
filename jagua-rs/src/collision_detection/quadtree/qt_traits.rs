@@ -46,6 +46,7 @@ impl QTQueryable for Circle {
             .filter(|c| self.center.sq_distance_to(c) <= r_sq)
             .count();
 
+        // Circle contains triangle built on 3 bbox corners, which is at least 0.5 area of the bbox
         n_inside >= 3
     }
 }

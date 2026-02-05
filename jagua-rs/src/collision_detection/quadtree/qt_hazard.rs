@@ -93,6 +93,8 @@ impl QTHazard {
                 } else {
                     //The hazard is active in multiple quadrants
 
+                    // First lets find the quadrants where edges of the partial hazard are colliding with the quadrants.
+                    // These will also be partially present hazards.
                     let mut constricted_hazards = quadrants.map(|q| {
                         //For every quadrant, collect the edges that are colliding with it
                         let mut colliding_edges = None;
@@ -102,7 +104,7 @@ impl QTHazard {
                             }
                         }
 
-                        //If there are relevant edges, create a new QTHazard for this quadrant
+                        //If there are relevant edges, create a new QTHazard for this quadrant which is partially present
                         colliding_edges.map(|edges| {
                             // Compute clamped points for this quadrant
                             let mut points: Vec<Point> = Vec::new();
