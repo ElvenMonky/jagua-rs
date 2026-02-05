@@ -11,13 +11,8 @@ use std::array;
 /// Computes the lower bound presence (area fraction) of a shape within a bounding box.
 fn compute_presence(shape: &SPolygon, bbox: &Rect) -> f32 {
     let clamped_vertices = shape.clamp_to_bbox(bbox);
-    if clamped_vertices.len() < 3 {
-        return 0.0;
-    }
-    match SPolygon::new(clamped_vertices) {
-        Ok(poly) => (poly.area / bbox.area()).clamp(0.0, 1.0),
-        Err(_) => 0.0,
-    }
+    let area = SPolygon::calculate_area(&clamped_vertices).abs();
+    (area / bbox.area()).clamp(0.0, 1.0)
 }
 
 /// Representation of a [`Hazard`] in a [`QTNode`](crate::collision_detection::quadtree::QTNode)
