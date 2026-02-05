@@ -34,12 +34,11 @@ pub enum QTHazPresence {
 impl QTHazard {
     /// Converts a [`Hazard`] into a [`QTHazard`], assuming it is for the root of the quadtree.
     pub fn from_root(qt_root_bbox: Rect, haz: &Hazard, hkey: HazKey) -> Self {
-        let presence = haz.shape.area / qt_root_bbox.area();
         Self {
             qt_bbox: qt_root_bbox,
             hkey,
             entity: haz.entity,
-            presence: QTHazPresence::Partial(QTHazPartial::from_entire_shape(&haz.shape, presence)),
+            presence: QTHazPresence::Partial(QTHazPartial::from_entire_shape(&haz.shape, haz.shape.area)),
         }
     }
 
@@ -71,15 +70,9 @@ impl QTHazard {
                 if let Some(quad_index) = enclosed_hazard_quadrant {
                     //The hazard is entirely enclosed within one quadrant,
                     //For this quadrant the QTHazard is equivalent to the original hazard, the rest are None
-                    let new_presence = haz_shape.area / quadrants[quad_index].area();
                     array::from_fn(|i| {
                         let presence = if i == quad_index {
-                            QTHazPresence::Partial(QTHazPartial::from_parent(
-                                partial_haz,
-                                partial_haz.edges.clone(),
-                                partial_haz.points.clone(),
-                                new_presence,
-                            ))
+                            QTHazPresence::Partial(partial_haz.clone())
                         } else {
                             QTHazPresence::None
                         };
@@ -142,14 +135,14 @@ impl QTHazard {
                                 }
                             }
 
-                            let presence = SPolygon::calculate_area(&points).abs() / q.area();
+                            let presence_area = SPolygon::calculate_area(&points).abs();
                             QTHazard {
                                 qt_bbox: q,
                                 presence: QTHazPresence::Partial(QTHazPartial::from_parent(
                                     partial_haz,
                                     edges,
                                     points,
-                                    presence,
+                                    presence_area,
                                 )),
                                 hkey: self.hkey,
                                 entity: self.entity,

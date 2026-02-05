@@ -14,20 +14,21 @@ pub trait QTQueryable: CollidesWith<Edge> + CollidesWith<Rect> {
     }
 
     /// Returns true if pigeonhole principle guarantees collision:
-    /// entity_presence + haz_presence > 1.0
-    fn guarantees_collision(&self, _bbox: &Rect, _haz_presence: f32) -> bool {
+    /// entity_presence_area + haz_presence_area > bbox.area()
+    fn guarantees_collision(&self, _bbox: &Rect, _haz_presence_area: f32) -> bool {
         false
     }
 }
 
 impl QTQueryable for Circle {
-    fn guarantees_collision(&self, bbox: &Rect, haz_presence: f32) -> bool {
-        if haz_presence <= 0.5 {
+    fn guarantees_collision(&self, bbox: &Rect, haz_presence_area: f32) -> bool {
+        let remaining_area = bbox.area() - haz_presence_area;
+        // Remaining area is too large for test to be effecient (> 0.5 * bbox.area())
+        if haz_presence_area <= remaining_area {
             return false;
         }
         
-        let remaining_area = bbox.area() * (1.0 - haz_presence);
-        // Early exit: if max possible presence can't trigger, bail
+        // Early exit: if max possible presence area can't trigger, bail
         if self.area() <= remaining_area {
             return false;
         }
@@ -56,9 +57,9 @@ impl QTQueryable for Circle {
 }
 
 impl QTQueryable for Rect {
-    fn guarantees_collision(&self, bbox: &Rect, haz_presence: f32) -> bool {
+    fn guarantees_collision(&self, bbox: &Rect, haz_presence_area: f32) -> bool {
         if let Some(intersection) = Rect::intersection(*self, *bbox) {
-            intersection.area() / bbox.area() + haz_presence > 1.0
+            intersection.area() > bbox.area() - haz_presence_area
         } else {
             false
         }

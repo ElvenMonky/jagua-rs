@@ -62,6 +62,10 @@ impl QTHazardVec {
         self.iter().find(|hz| !filter.is_irrelevant(hz.hkey))
     }
 
+    pub fn first(&self) -> Option<&QTHazard> {
+        self.hazards.first()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.hazards.is_empty()
     }
@@ -87,12 +91,12 @@ impl QTHazardVec {
 }
 
 fn order_by_descending_strength(qth1: &QTHazard, qth2: &QTHazard) -> Ordering {
-    // Sort by presence: Entire (2.0) > Partial(high) > Partial(low) > None (-1.0)
+    // Sort by presence: Entire (1.0 + full area) > Partial(high presence area) > Partial(low presence area) > None (-1.0)
     let qth_presence_sortkey = |qth: &QTHazard| -> ordered_float::OrderedFloat<f32> {
         match &qth.presence {
             QTHazPresence::None => ordered_float::OrderedFloat(-1.0),
-            QTHazPresence::Partial(p) => ordered_float::OrderedFloat(p.presence),
-            QTHazPresence::Entire => ordered_float::OrderedFloat(2.0),
+            QTHazPresence::Partial(p) => ordered_float::OrderedFloat(p.presence_area),
+            QTHazPresence::Entire => ordered_float::OrderedFloat(1.0 + qth.qt_bbox.area()),
         }
     };
 

@@ -12,17 +12,17 @@ pub struct QTHazPartial {
     /// Deduplicated outline points of clamped hazard polygon
     pub points: Vec<Point>,
     /// Lower bound on the fraction of the quadtree node's area blocked by this hazard.
-    pub presence: f32,
+    pub presence_area: f32,
 }
 
 impl QTHazPartial {
-    pub fn from_entire_shape(shape: &SPolygon, presence: f32) -> Self {
+    pub fn from_entire_shape(shape: &SPolygon, presence_area: f32) -> Self {
         let edges = shape.edge_iter().collect();
         let ff_bbox = shape.bbox;
         let points = shape.vertices.clone();
-        Self { edges, ff_bbox, points, presence }
+        Self { edges, ff_bbox, points, presence_area }
     }
-    pub fn from_parent(parent: &QTHazPartial, restricted_edges: Vec<Edge>, points: Vec<Point>, presence: f32) -> Self {
+    pub fn from_parent(parent: &QTHazPartial, restricted_edges: Vec<Edge>, points: Vec<Point>, presence_area: f32) -> Self {
         debug_assert!(!restricted_edges.is_empty());
         debug_assert!(restricted_edges.iter().all(|e| parent.edges.contains(e)));
         let ff_bbox = {
@@ -62,7 +62,7 @@ impl QTHazPartial {
             edges: restricted_edges,
             ff_bbox,
             points,
-            presence,
+            presence_area,
         }
     }
 

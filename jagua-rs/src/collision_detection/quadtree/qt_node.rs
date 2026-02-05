@@ -107,7 +107,7 @@ impl QTNode {
                 QTHazPresence::None => None,
                 QTHazPresence::Entire => Some(&strongest_hazard.entity),
                 QTHazPresence::Partial(p_haz) => {
-                    if entity.guarantees_collision(&self.bbox, p_haz.presence) {
+                    if entity.guarantees_collision(&self.bbox, p_haz.presence_area) {
                         return Some(&strongest_hazard.entity);
                     }
 
@@ -161,11 +161,11 @@ impl QTNode {
         let mut perform_cd_now = self.hazards.n_active_edges() <= self.cd_threshold as usize;
 
         // Check strongest hazard for pigeonhole early-out
-        if let Some(hz) = self.hazards.iter().next() {
+        if let Some(hz) = self.hazards.first() {
             if let QTHazPresence::Partial(p_haz) = &hz.presence {
-                if p_haz.presence > 0.5 
+                if p_haz.presence_area > 0.5 
                     && !collector.contains_key(hz.hkey)
-                    && entity.guarantees_collision(&self.bbox, p_haz.presence) 
+                    && entity.guarantees_collision(&self.bbox, p_haz.presence_area) 
                 {
                     collector.insert(hz.hkey, hz.entity);
                     perform_cd_now = true;
@@ -196,7 +196,7 @@ impl QTNode {
                             QTHazPresence::None => (),
                             QTHazPresence::Entire => collector.insert(hz.hkey, hz.entity),
                             QTHazPresence::Partial(p_haz) => {
-                                if (p_haz.presence > 0.5 && entity.guarantees_collision(&self.bbox, p_haz.presence)) || p_haz.collides_with(entity) {
+                                if (p_haz.presence_area > 0.5 && entity.guarantees_collision(&self.bbox, p_haz.presence_area)) || p_haz.collides_with(entity) {
                                     collector.insert(hz.hkey, hz.entity);
                                 }
                             }
