@@ -4,6 +4,13 @@ use crate::geometry::primitives::{Circle, Edge, Point, SPolygon};
 use std::cmp::Ordering;
 use std::f32::consts::PI;
 
+// Quadrant bit flags
+const Q0: u8 = 0b0001;
+const Q1: u8 = 0b0010;
+const Q2: u8 = 0b0100;
+const Q3: u8 = 0b1000;
+const ALL: u8 = 0b1111;
+
 /// Common trait for all geometric primitives that can be directly queried in the quadtree
 /// for collisions with the edges of the registered hazards. These include: [Rect], [Edge], [Circle], and [SPolygon].
 pub trait QTQueryable: CollidesWith<Edge> + CollidesWith<Rect> {
@@ -122,41 +129,41 @@ impl QTQueryable for Rect {
 impl QTQueryable for Edge {
     fn collides_with_quadrants(&self, r: &Rect, qs: [&Rect; 4]) -> [bool; 4] {
         debug_assert!(r.quadrants().iter().zip(qs.iter()).all(|(q, r)| *q == **r));
+        
+        let mut determined: u8 = 0;
+        let mut collides: u8 = 0;
+
         let e_x_min = self.x_min();
         let e_x_max = self.x_max();
         let e_y_min = self.y_min();
         let e_y_max = self.y_max();
 
-        let [mut c_q0, mut c_q1, mut c_q2, mut c_q3] = [0, 1, 2, 3].map(|idx| {
-            let q = qs[idx];
+        // Check bbox overlap and endpoint containment
+        for (i, q) in qs.iter().enumerate() {
+            let bit = 1 << i;
 
             let x_no_overlap = e_x_min.max(q.x_min) > e_x_max.min(q.x_max);
             let y_no_overlap = e_y_min.max(q.y_min) > e_y_max.min(q.y_max);
 
             if x_no_overlap || y_no_overlap {
                 // Edge is completely outside the x- or y-range of the quadrant
-                Some(false)
+                determined |= bit;
             } else if q.collides_with(&self.start) || q.collides_with(&self.end) {
                 // Edge has at least one end point in the quadrant
-                Some(true)
-            } else {
-                // Undetermined, we need to check for intersections with the sides of the quadrants
-                None
+                determined |= bit;
+                collides |= bit;
             }
-        });
+        }
 
         // If all quadrants are already determined, we can return early
-        if let (Some(c_q0), Some(c_q1), Some(c_q2), Some(c_q3)) = (c_q0, c_q1, c_q2, c_q3) {
-            return [c_q0, c_q1, c_q2, c_q3];
+        if determined == ALL {
+            return bits_to_array(collides);
         }
 
         // Otherwise, we need to check for intersections with the sides of the quadrants
         // We can exploit the fact that the quadrants have a fixed layout, and share edges.
-
         let c = r.centroid();
-
         let [top, left, bottom, right] = r.sides();
-
         let h_bisect = Edge {
             start: Point(r.x_min, c.1),
             end: Point(r.x_max, c.1),
@@ -169,42 +176,32 @@ impl QTQueryable for Edge {
         //  1    0
         //  2    3
 
-        half_intersect(self, &left, [&mut c_q1], [&mut c_q2]);
-        half_intersect(self, &right, [&mut c_q3], [&mut c_q0]);
-        half_intersect(self, &top, [&mut c_q0], [&mut c_q1]);
-        half_intersect(self, &bottom, [&mut c_q2], [&mut c_q3]);
-        half_intersect(
-            self,
-            &h_bisect,
-            [&mut c_q1, &mut c_q2],
-            [&mut c_q0, &mut c_q3],
-        );
-        half_intersect(
-            self,
-            &v_bisect,
-            [&mut c_q2, &mut c_q3],
-            [&mut c_q0, &mut c_q1],
-        );
+        half_intersect_bits(self, &left, Q1, Q2, &mut determined, &mut collides);
+        half_intersect_bits(self, &right, Q3, Q0, &mut determined, &mut collides);
+        half_intersect_bits(self, &top, Q0, Q1, &mut determined, &mut collides);
+        half_intersect_bits(self, &bottom, Q2, Q3, &mut determined, &mut collides);
+        half_intersect_bits(self, &h_bisect, Q1 | Q2, Q0 | Q3, &mut determined, &mut collides);
+        half_intersect_bits(self, &v_bisect, Q2 | Q3, Q0 | Q1, &mut determined, &mut collides);
 
-        let [c_q0, c_q1, c_q2, c_q3] = [c_q0, c_q1, c_q2, c_q3].map(|c| c.unwrap_or(false));
+        let result = bits_to_array(collides);
         debug_assert!(
             {
                 // make sure all quadrants which are colliding according to the individual collision check are at least
                 // also caught by the quadrant collision check
                 qs.map(|q| self.collides_with(q))
                     .iter()
-                    .zip([c_q0, c_q1, c_q2, c_q3].iter())
+                    .zip(result.iter())
                     .all(|(&i_c, &q_c)| !i_c || q_c)
             },
             "{:?}, {:?}, {:?}, {:?}, {:?}",
             self,
             r,
             qs,
-            [c_q0, c_q1, c_q2, c_q3],
+            result,
             qs.map(|q| self.collides_with(q))
         );
 
-        [c_q0, c_q1, c_q2, c_q3]
+        result
     }
 }
 
@@ -221,36 +218,38 @@ impl QTQueryable for SPolygon {
     }
 }
 
-/// If e1 intersects with e2 in the first half of e2, it sets all bools in `fst_qs` to true,
-/// if e1 intersects with e2 the second half of e2, it sets all bools in `sec_qs` to true.
-fn half_intersect<const N: usize>(
+#[inline(always)]
+fn bits_to_array(bits: u8) -> [bool; 4] {
+    [
+        bits & Q0 != 0,
+        bits & Q1 != 0,
+        bits & Q2 != 0,
+        bits & Q3 != 0,
+    ]
+}
+
+/// If e1 intersects with e2 in the first half of e2, sets fst_mask bits in collides.
+/// If e1 intersects with e2 in the second half of e2, sets sec_mask bits in collides.
+/// Updates determined accordingly.
+#[inline(always)]
+fn half_intersect_bits(
     e1: &Edge,
     e2: &Edge,
-    fst_qs: [&mut Option<bool>; N],
-    sec_qs: [&mut Option<bool>; N],
+    fst_mask: u8,
+    sec_mask: u8,
+    determined: &mut u8,
+    collides: &mut u8,
 ) {
-    if fst_qs.iter().chain(sec_qs.iter()).any(|t| t.is_none())
-        && let Some((_, e2_col_loc)) = edge_intersection_half(e1, e2)
-    {
-        match e2_col_loc {
-            CollisionHalf::FirstHalf => {
-                for c in fst_qs {
-                    *c = Some(true);
-                }
-            }
-            CollisionHalf::Halfway => {
-                for c in fst_qs {
-                    *c = Some(true);
-                }
-                for c in sec_qs {
-                    *c = Some(true);
-                }
-            }
-            CollisionHalf::SecondHalf => {
-                for c in sec_qs {
-                    *c = Some(true);
-                }
-            }
+    let relevant = (fst_mask | sec_mask) & !*determined;
+    if relevant != 0 {
+        if let Some((_, e2_col_loc)) = edge_intersection_half(e1, e2) {
+            let hit_mask = match e2_col_loc {
+                CollisionHalf::FirstHalf => fst_mask,
+                CollisionHalf::SecondHalf => sec_mask,
+                CollisionHalf::Halfway => fst_mask | sec_mask,
+            };
+            *determined |= hit_mask;
+            *collides |= hit_mask;
         }
     }
 }
