@@ -1,11 +1,11 @@
 use crate::geometry::geo_traits::{CollidesWith, DistanceTo};
 use crate::geometry::primitives::Rect;
-use crate::geometry::primitives::{Circle, Edge, Point};
+use crate::geometry::primitives::{Circle, Edge, Point, SPolygon};
 use std::cmp::Ordering;
 use std::f32::consts::PI;
 
 /// Common trait for all geometric primitives that can be directly queried in the quadtree
-/// for collisions with the edges of the registered hazards. These include: [Rect], [Edge] and [Circle].
+/// for collisions with the edges of the registered hazards. These include: [Rect], [Edge], [Circle], and [SPolygon].
 pub trait QTQueryable: CollidesWith<Edge> + CollidesWith<Rect> {
     /// Checks which quadrants the entity collides with.
     fn collides_with_quadrants(&self, _r: &Rect, qs: [&Rect; 4]) -> [bool; 4] {
@@ -152,6 +152,19 @@ impl QTQueryable for Edge {
         );
 
         [c_q0, c_q1, c_q2, c_q3]
+    }
+}
+
+impl QTQueryable for SPolygon {
+    fn guarantees_collision(&self, bbox: &Rect, haz_presence_area: f32) -> bool {
+        if let Some(surrogate) = &self.surrogate {
+            surrogate
+                .ff_poles()
+                .iter()
+                .any(|pole| pole.guarantees_collision(bbox, haz_presence_area))
+        } else {
+            false
+        }
     }
 }
 

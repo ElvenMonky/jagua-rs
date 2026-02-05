@@ -291,6 +291,65 @@ impl CollidesWith<Point> for SPolygon {
     }
 }
 
+impl CollidesWith<Edge> for SPolygon {
+    fn collides_with(&self, edge: &Edge) -> bool {
+        // 1. Bbox early-out (fast negative)
+        if !self.bbox.collides_with(&edge.bbox()) {
+            return false;
+        }
+
+        // 2. Surrogate fast positive - if edge hits interior, we're done
+        if let Some(surrogate) = &self.surrogate {
+            // Edge collides with any pole?
+            if surrogate.ff_poles().iter().any(|pole| pole.collides_with(edge)) {
+                return true;
+            }
+            // Edge collides with any pier?
+            if surrogate.ff_piers().iter().any(|pier| pier.collides_with(edge)) {
+                return true;
+            }
+        }
+
+        // 3. Check polygon edges for intersection
+        if self.edge_iter().any(|e| e.collides_with(edge)) {
+            return true;
+        }
+
+        // 4. Check containment (edge fully inside polygon)
+        self.collides_with(&edge.start)
+    }
+}
+
+impl CollidesWith<Rect> for SPolygon {
+    fn collides_with(&self, rect: &Rect) -> bool {
+        // 1. Bbox early-out (fast negative)
+        if !self.bbox.collides_with(rect) {
+            return false;
+        }
+
+        // 2. Surrogate fast positive - if rect hits interior, we're done
+        if let Some(surrogate) = &self.surrogate {
+            // Rect collides with any pole?
+            if surrogate.ff_poles().iter().any(|pole| pole.collides_with(rect)) {
+                return true;
+            }
+            // Rect collides with any pier?
+            if surrogate.ff_piers().iter().any(|pier| rect.collides_with(pier)) {
+                return true;
+            }
+        }
+
+        // 3. Check polygon edges for intersection with rect
+        if self.edge_iter().any(|e| rect.collides_with(&e)) {
+            return true;
+        }
+
+        // 4. Check containment: rect inside polygon or polygon inside rect
+        // Use poi.center for polygon (guaranteed inside), rect centroid for rect
+        rect.collides_with(&self.poi.center) || self.collides_with(&rect.centroid())
+    }
+}
+
 impl DistanceTo<Point> for SPolygon {
     fn distance_to(&self, point: &Point) -> f32 {
         self.sq_distance_to(point).sqrt()
