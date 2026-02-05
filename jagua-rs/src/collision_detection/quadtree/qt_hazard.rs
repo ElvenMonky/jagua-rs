@@ -72,7 +72,7 @@ impl QTHazard {
                     //For this quadrant the QTHazard is equivalent to the original hazard, the rest are None
                     array::from_fn(|i| {
                         let presence = if i == quad_index {
-                            QTHazPresence::Partial(partial_haz.clone())
+                            self.presence.clone()
                         } else {
                             QTHazPresence::None
                         };
@@ -96,7 +96,6 @@ impl QTHazard {
                                 colliding_edges.get_or_insert_with(Vec::new).push(*edge);
                             }
                         }
-
                         //If there are relevant edges, create a new QTHazard for this quadrant which is partially present
                         colliding_edges.map(|edges| {
                             // Compute clamped points for this quadrant
