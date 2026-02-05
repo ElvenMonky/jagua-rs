@@ -2,6 +2,7 @@ use crate::geometry::geo_traits::{CollidesWith, DistanceTo};
 use crate::geometry::primitives::Rect;
 use crate::geometry::primitives::{Circle, Edge, Point};
 use std::cmp::Ordering;
+use std::f32::consts::PI;
 
 /// Common trait for all geometric primitives that can be directly queried in the quadtree
 /// for collisions with the edges of the registered hazards. These include: [Rect], [Edge] and [Circle].
@@ -25,18 +26,10 @@ impl QTQueryable for Circle {
             return false;
         }
         
-        let bb_area = bbox.area();
+        let remaining_area = bbox.area() * (1.0 - haz_presence);
         // Early exit: if max possible presence can't trigger, bail
-        if self.area() + bb_area * haz_presence <= bb_area {
+        if self.area() <= remaining_area {
             return false;
-        }
-
-        let circle_bbox = self.bbox();
-        if circle_bbox.x_min >= bbox.x_min
-            && circle_bbox.y_min >= bbox.y_min
-            && circle_bbox.x_max <= bbox.x_max
-            && circle_bbox.y_max <= bbox.y_max {
-            return true;
         }
 
         // Count corners inside circle
@@ -47,7 +40,18 @@ impl QTQueryable for Circle {
             .count();
 
         // Circle contains triangle built on 3 bbox corners, which is at least 0.5 area of the bbox
-        n_inside >= 3
+        if n_inside >= 3 {
+            return true;
+        }
+
+        // radius of inscribed part of circle
+        let (r, x, y) = (self.radius, self.center.0, self.center.1);
+        let x0 = 0.5 * (bbox.x_max.min(x + r) + bbox.x_min.max(x - r));
+        let y0 = 0.5 * (bbox.y_max.min(y + r) + bbox.y_min.max(y - r));
+        let d = r - ((x - x0).powi(2) + (y - y0).powi(2)).sqrt();
+        let r0 = d.min(x0 - bbox.x_min).min(y0 - bbox.y_min).min(bbox.x_max - x0).min(bbox.y_max - y0);
+
+        PI * r0 * r0 > remaining_area
     }
 }
 
