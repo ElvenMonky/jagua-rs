@@ -1,6 +1,7 @@
 use crate::collision_detection::quadtree::qt_traits::QTQueryable;
 use crate::geometry::geo_traits::CollidesWith;
-use crate::geometry::primitives::{Edge, Point, Rect, SPolygon};
+use crate::geometry::primitives::{Circle, Edge, Point, Rect, SPolygon};
+use std::sync::Arc;
 
 /// Defines a set of edges from a hazard that is partially active in the [`QTNode`](crate::collision_detection::quadtree::QTNode).
 #[derive(Clone, Debug)]
@@ -13,6 +14,8 @@ pub struct QTHazPartial {
     pub points: Vec<Point>,
     /// Lower bound on the fraction of the quadtree node's area blocked by this hazard.
     pub presence_area: f32,
+    /// Surrogate poles of the hazard shape (shared across all nodes via Arc)
+    pub surrogate_poles: Arc<[Circle]>,
 }
 
 impl QTHazPartial {
@@ -20,7 +23,12 @@ impl QTHazPartial {
         let edges = shape.edge_iter().collect();
         let ff_bbox = shape.bbox;
         let points = shape.vertices.clone();
-        Self { edges, ff_bbox, points, presence_area }
+        let surrogate_poles: Arc<[Circle]> = shape
+            .surrogate
+            .as_ref()
+            .map(|s| Arc::from(s.ff_poles().to_vec().into_boxed_slice()))
+            .unwrap_or_else(|| Arc::from([]));
+        Self { edges, ff_bbox, points, presence_area, surrogate_poles }
     }
     pub fn from_parent(parent: &QTHazPartial, restricted_edges: Vec<Edge>, points: Vec<Point>, presence_area: f32) -> Self {
         debug_assert!(!restricted_edges.is_empty());
@@ -63,6 +71,7 @@ impl QTHazPartial {
             ff_bbox,
             points,
             presence_area,
+            surrogate_poles: Arc::clone(&parent.surrogate_poles),
         }
     }
 
@@ -74,6 +83,11 @@ impl QTHazPartial {
 impl<T: QTQueryable> CollidesWith<T> for QTHazPartial {
     fn collides_with(&self, entity: &T) -> bool {
         // If the entity does not collide with the bounding box of the hazard, it cannot collide with the hazard
-        entity.collides_with(&self.ff_bbox) && self.edges.iter().any(|e| entity.collides_with(e))
+        entity.collides_with(&self.ff_bbox)
+            && (
+                // Fast positive: check entity against hazard's surrogate poles
+                entity.collides_with_hazard_poles(&self.surrogate_poles)
+                || self.edges.iter().any(|e| entity.collides_with(e))
+            )
     }
 }

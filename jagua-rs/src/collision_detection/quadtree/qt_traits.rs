@@ -25,6 +25,14 @@ pub trait QTQueryable: CollidesWith<Edge> + CollidesWith<Rect> {
     fn guarantees_collision(&self, _bbox: &Rect, _haz_presence_area: f32) -> bool {
         false
     }
+
+    /// Fast positive precheck against hazard surrogate poles.
+    /// Returns true if the entity definitely collides with at least one pole.
+    /// May return false negatives, never false positives.
+    /// Default: no precheck (returns false).
+    fn collides_with_hazard_poles(&self, _poles: &[Circle]) -> bool {
+        false
+    }
 }
 
 impl QTQueryable for Circle {
@@ -61,6 +69,10 @@ impl QTQueryable for Circle {
 
         PI * r0 * r0 > remaining_area
     }
+
+    fn collides_with_hazard_poles(&self, poles: &[Circle]) -> bool {
+        poles.iter().any(|pole| pole.collides_with(self))
+    }
 }
 
 impl QTQueryable for Rect {
@@ -70,6 +82,10 @@ impl QTQueryable for Rect {
         } else {
             false
         }
+    }
+
+    fn collides_with_hazard_poles(&self, poles: &[Circle]) -> bool {
+        poles.iter().any(|pole| pole.collides_with(self))
     }
 }
 
@@ -149,6 +165,10 @@ impl QTQueryable for Edge {
         );
 
         result
+    }
+
+    fn collides_with_hazard_poles(&self, poles: &[Circle]) -> bool {
+        poles.iter().any(|pole| pole.collides_with(self))
     }
 }
 

@@ -350,6 +350,31 @@ impl CollidesWith<Rect> for SPolygon {
     }
 }
 
+impl CollidesWith<Circle> for SPolygon {
+    fn collides_with(&self, circle: &Circle) -> bool {
+        if !circle.collides_with(&self.bbox) {
+            return false;
+        }
+
+        if let Some(surrogate) = &self.surrogate {
+            if surrogate.ff_poles().iter().any(|pole| pole.collides_with(circle)) {
+                return true;
+            }
+            if surrogate.ff_piers().iter().any(|pier| circle.collides_with(pier)) {
+                return true;
+            }
+        }
+
+        // 3. Containment: circle center inside polygon or poi inside circle
+        if self.collides_with(&circle.center) {
+            return true;
+        }
+
+        // 4. Check polygon edges for intersection with circle
+        self.edge_iter().any(|e| circle.collides_with(&e))
+    }
+}
+
 impl DistanceTo<Point> for SPolygon {
     fn distance_to(&self, point: &Point) -> f32 {
         self.sq_distance_to(point).sqrt()
