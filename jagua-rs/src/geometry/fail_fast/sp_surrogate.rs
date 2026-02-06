@@ -1,6 +1,7 @@
 use crate::geometry::Transformation;
 use crate::geometry::convex_hull;
 use crate::geometry::fail_fast::{piers, pole};
+use crate::geometry::fail_fast::bounding_circle::smallest_enclosing_circle;
 use crate::geometry::geo_traits::{Transformable, TransformableFrom};
 use crate::geometry::primitives::Circle;
 use crate::geometry::primitives::Edge;
@@ -19,6 +20,10 @@ pub struct SPSurrogate {
     pub poles: Vec<Circle>,
     /// Set of [piers](piers::generate_piers)
     pub piers: Vec<Edge>,
+    /// Smallest enclosing circle (`bounding_circle`) of the polygon.
+    /// Used for fast-negative collision checks: if the bounding circle
+    /// does not collide, the polygon cannot collide either.
+    pub bounding_circle: Circle,
     /// Indices of the vertices in the [`SPolygon`] that form the convex hull
     pub convex_hull_indices: Vec<usize>,
     /// The area of the convex hull of the [`SPolygon`].
@@ -42,11 +47,13 @@ impl SPSurrogate {
         let relevant_poles_for_piers = &poles[0..n_ff_poles]; //poi + all poles that will be checked during fail fast are relevant for piers
         let piers =
             piers::generate_piers(simple_poly, config.n_ff_piers, relevant_poles_for_piers)?;
+        let bounding_circle = smallest_enclosing_circle(&simple_poly.vertices);
 
         Ok(Self {
             convex_hull_indices,
             poles,
             piers,
+            bounding_circle,
             convex_hull_area,
             config,
         })
@@ -63,24 +70,24 @@ impl SPSurrogate {
 
 impl Transformable for SPSurrogate {
     fn transform(&mut self, t: &Transformation) -> &mut Self {
-        //destructuring pattern used to ensure that the code is updated accordingly when the struct changes
         let Self {
             convex_hull_indices: _,
             poles,
             piers,
+            bounding_circle,
             convex_hull_area: _,
             config: _,
         } = self;
 
-        //transform poles
         poles.iter_mut().for_each(|c| {
             c.transform(t);
         });
 
-        //transform piers
         piers.iter_mut().for_each(|p| {
             p.transform(t);
         });
+
+        bounding_circle.transform(t);
 
         self
     }
@@ -91,11 +98,11 @@ impl TransformableFrom for SPSurrogate {
         debug_assert!(self.poles.len() == reference.poles.len());
         debug_assert!(self.piers.len() == reference.piers.len());
 
-        //destructuring pattern used to ensure that the code is updated accordingly when the struct changes
         let Self {
             convex_hull_indices: _,
             poles,
             piers,
+            bounding_circle,
             convex_hull_area: _,
             config: _,
         } = self;
@@ -107,6 +114,8 @@ impl TransformableFrom for SPSurrogate {
         for (pier, ref_pier) in piers.iter_mut().zip(reference.piers.iter()) {
             pier.transform_from(ref_pier, t);
         }
+
+        bounding_circle.transform_from(&reference.bounding_circle, t);
 
         self
     }

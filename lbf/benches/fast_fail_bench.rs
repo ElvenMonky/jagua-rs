@@ -5,7 +5,7 @@ use jagua_rs::collision_detection::hazards::filter::NoFilter;
 use jagua_rs::entities::Instance;
 use jagua_rs::geometry::convex_hull;
 use jagua_rs::geometry::fail_fast::{
-    SPSurrogate, SPSurrogateConfig, generate_piers, generate_surrogate_poles
+    SPSurrogate, SPSurrogateConfig, generate_piers, generate_surrogate_poles, smallest_enclosing_circle
 };
 use jagua_rs::geometry::geo_traits::TransformableFrom;
 use jagua_rs::geometry::primitives::SPolygon;
@@ -158,10 +158,13 @@ pub fn create_custom_surrogate(
     .unwrap()
     .area;
 
+    let bounding_circle = smallest_enclosing_circle(&simple_poly.vertices);
+
     SPSurrogate {
         convex_hull_indices,
         poles,
         piers,
+        bounding_circle,
         convex_hull_area,
         config: sp_config,
     }

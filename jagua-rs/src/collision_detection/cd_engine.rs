@@ -153,6 +153,23 @@ impl CDEngine {
         self.hazards_map.values()
     }
 
+    // === Add to impl CDEngine, after detect_surrogate_collision ===
+
+    /// Fast-negative check using the bounding circle (smallest enclosing circle) of a shape.
+    /// If the bounding circle does not collide with any relevant hazard,
+    /// the actual shape cannot collide either.
+    /// Only the bounding circle center is transformed (single point), making this
+    /// much cheaper than [`detect_surrogate_collision`](Self::detect_surrogate_collision).
+    pub fn detect_bounding_circle_collision(
+        &self,
+        base_surrogate: &SPSurrogate,
+        transform: &Transformation,
+        filter: &impl HazardFilter,
+    ) -> bool {
+        let t_ortho = base_surrogate.bounding_circle.transform_clone(transform);
+        self.quadtree.collides(&t_ortho, filter).is_some()
+    }
+
     /// Checks whether a simple polygon collides with any of the (relevant) hazards
     /// # Arguments
     /// * `shape` - The shape (already transformed) to be checked for collisions

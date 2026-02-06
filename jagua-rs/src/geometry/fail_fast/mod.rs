@@ -1,6 +1,10 @@
+mod bounding_circle;
 mod piers;
 mod pole;
 mod sp_surrogate;
+
+#[doc(inline)]
+pub use bounding_circle::smallest_enclosing_circle;
 
 #[doc(inline)]
 pub use piers::generate_piers;

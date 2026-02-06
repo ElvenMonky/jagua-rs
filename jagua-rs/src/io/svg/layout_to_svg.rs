@@ -219,6 +219,14 @@ pub fn layout_to_svg_group(
                     ("stroke-linecap", "round"),
                     ("stroke-linejoin", "round"),
                 ];
+                let bounding_circle_style = [
+                    ("fill", "none"),
+                    ("stroke", "blue"),
+                    ("stroke-width", &*format!("{stroke_width}")),
+                    ("stroke-opacity", "0.4"),
+                    ("stroke-dasharray", &*format!("{} {}", 3.0 * stroke_width, 3.0 * stroke_width)),
+                    ("stroke-linecap", "round"),
+                ];
 
                 let surrogate = item.shape_cd.surrogate();
                 let poi = &surrogate.poles[0];
@@ -245,6 +253,16 @@ pub fn layout_to_svg_group(
                         &ff_style,
                     ));
                 }
+
+                // Draw bounding circle
+                {
+                    let bc = surrogate.bounding_circle.transform_clone(&int_transf);
+                    surrogate_group = surrogate_group.add(
+                        svg_util::circle(bc, &bounding_circle_style)
+                            .add(Title::new("bounding circle"))
+                    );
+                }
+
                 surrogate_defs = surrogate_defs.add(surrogate_group)
             }
 

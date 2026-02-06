@@ -53,18 +53,21 @@ fn cde_collect_bench(c: &mut Criterion) {
                 let mut buffer_shape = item.shape_cd.as_ref().clone();
                 let mut collector = BasicHazardCollector::with_capacity(cde.hazards_map.len());
                 let sampler = UniformRectSampler::new(cde.bbox(), item);
+                let surrogate = item.shape_cd.surrogate();
                 for _ in 0..N_SAMPLES_PER_ITER {
                     let d_transf = sampler.sample(&mut rng);
                     let transf = d_transf.compose();
-                    //detect collisions with the surrogate
-                    cde.collect_surrogate_collisions(
-                        item.shape_cd.surrogate(),
-                        &transf,
-                        &mut collector,
-                    );
-                    //detect collisions with the actual shape
-                    buffer_shape.transform_from(&item.shape_cd, &transf);
-                    cde.collect_poly_collisions(&buffer_shape, &mut collector);
+                    if cde.detect_bounding_circle_collision(surrogate, &transf, &collector) {
+                        //detect collisions with the surrogate
+                        cde.collect_surrogate_collisions(
+                            surrogate,
+                            &transf,
+                            &mut collector,
+                        );
+                        //detect collisions with the actual shape
+                        buffer_shape.transform_from(&item.shape_cd, &transf);
+                        cde.collect_poly_collisions(&buffer_shape, &mut collector);
+                    }
                     n_detected += collector.len();
                     collector.clear();
                 }
@@ -104,19 +107,25 @@ fn cde_detect_bench(c: &mut Criterion) {
                 let cde = &problem.layout.cde();
                 let mut buffer_shape = item.shape_cd.as_ref().clone();
                 let sampler = UniformRectSampler::new(cde.bbox(), item);
+                let surrogate = item.shape_cd.surrogate();
                 for _ in 0..N_SAMPLES_PER_ITER {
                     let d_transf = sampler.sample(&mut rng);
                     let transf = d_transf.compose();
-                    //detect collisions with the surrogate
-                    if !cde.detect_surrogate_collision(
-                        item.shape_cd.surrogate(),
-                        &transf,
-                        &NoFilter,
-                    ) {
-                        buffer_shape.transform_from(&item.shape_cd, &transf);
-                        if !cde.detect_poly_collision(&buffer_shape, &NoFilter) {
-                            n_detected += 1;
+                    // Fast negative: bounding circle
+                    if cde.detect_bounding_circle_collision(surrogate, &transf, &NoFilter) {
+                        //detect collisions with the surrogate
+                        if !cde.detect_surrogate_collision(
+                            surrogate,
+                            &transf,
+                            &NoFilter,
+                        ) {
+                            buffer_shape.transform_from(&item.shape_cd, &transf);
+                            if !cde.detect_poly_collision(&buffer_shape, &NoFilter) {
+                                n_detected += 1;
+                            }
                         }
+                    } else {
+                        n_detected += 1;
                     }
                 }
             })
