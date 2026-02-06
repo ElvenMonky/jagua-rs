@@ -153,21 +153,41 @@ impl CDEngine {
         self.hazards_map.values()
     }
 
-    // === Add to impl CDEngine, after detect_surrogate_collision ===
-
-    /// Fast-negative check using the bounding circle (smallest enclosing circle) of a shape.
-    /// If the bounding circle does not collide with any relevant hazard,
-    /// the actual shape cannot collide either.
-    /// Only the bounding circle center is transformed (single point), making this
-    /// much cheaper than [`detect_surrogate_collision`](Self::detect_surrogate_collision).
+    /// Fast-negative check using bounding circles.
+    /// For interior hazards: checks if item's bounding circle overlaps hazard's bounding circle.
+    /// For exterior hazards: checks if item's bounding circle fits entirely within the hazard shape's POI.
+    /// If no potential collision is found, the actual shape cannot collide with any hazard.
+    ///
+    /// O(n) in the number of hazards, circle-circle arithmetic only. No quadtree traversal.
     pub fn detect_bounding_circle_collision(
         &self,
-        base_surrogate: &SPSurrogate,
+        base_shape: &SPolygon,
         transform: &Transformation,
         filter: &impl HazardFilter,
     ) -> bool {
-        let t_ortho = base_surrogate.bounding_circle.transform_clone(transform);
-        self.quadtree.collides(&t_ortho, filter).is_some()
+        let t_center = base_shape.bounding_circle.center.transform_clone(transform);
+        let t_radius = base_shape.bounding_circle.radius;
+
+        self.hazards_map.iter().any(|(hkey, haz)| {
+            !filter.is_irrelevant(hkey) && match haz.entity.scope() {
+                GeoPosition::Interior => {
+                    // Item BC overlaps hazard BC → might collide
+                    let hbc = &haz.shape.bounding_circle;
+                    let dx = t_center.0 - hbc.center.0;
+                    let dy = t_center.1 - hbc.center.1;
+                    let r_sum = t_radius + hbc.radius;
+                    dx * dx + dy * dy <= r_sum * r_sum
+                }
+                GeoPosition::Exterior => {
+                    // Item BC NOT fully inside hazard's POI → might collide with exterior
+                    let poi = &haz.shape.poi;
+                    let dx = t_center.0 - poi.center.0;
+                    let dy = t_center.1 - poi.center.1;
+                    let r_diff = poi.radius - t_radius;
+                    r_diff <= 0.0 || dx * dx + dy * dy > r_diff * r_diff
+                }
+            }
+        })
     }
 
     /// Checks whether a simple polygon collides with any of the (relevant) hazards

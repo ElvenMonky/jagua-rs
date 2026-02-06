@@ -158,13 +158,10 @@ pub fn create_custom_surrogate(
     .unwrap()
     .area;
 
-    let bounding_circle = smallest_enclosing_circle(&simple_poly.vertices);
-
     SPSurrogate {
         convex_hull_indices,
         poles,
         piers,
-        bounding_circle,
         convex_hull_area,
         config: sp_config,
     }

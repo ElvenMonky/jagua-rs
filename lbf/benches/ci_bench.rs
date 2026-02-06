@@ -57,7 +57,7 @@ fn cde_collect_bench(c: &mut Criterion) {
                 for _ in 0..N_SAMPLES_PER_ITER {
                     let d_transf = sampler.sample(&mut rng);
                     let transf = d_transf.compose();
-                    if cde.detect_bounding_circle_collision(surrogate, &transf, &collector) {
+                    if cde.detect_bounding_circle_collision(&item.shape_cd, &transf, &collector) {
                         //detect collisions with the surrogate
                         cde.collect_surrogate_collisions(
                             surrogate,
@@ -112,7 +112,7 @@ fn cde_detect_bench(c: &mut Criterion) {
                     let d_transf = sampler.sample(&mut rng);
                     let transf = d_transf.compose();
                     // Fast negative: bounding circle
-                    if cde.detect_bounding_circle_collision(surrogate, &transf, &NoFilter) {
+                    if cde.detect_bounding_circle_collision(&item.shape_cd, &transf, &NoFilter) {
                         //detect collisions with the surrogate
                         if !cde.detect_surrogate_collision(
                             surrogate,

@@ -256,7 +256,7 @@ pub fn layout_to_svg_group(
 
                 // Draw bounding circle
                 {
-                    let bc = surrogate.bounding_circle.transform_clone(&int_transf);
+                    let bc = item.shape_cd.bounding_circle.transform_clone(&int_transf);
                     surrogate_group = surrogate_group.add(
                         svg_util::circle(bc, &bounding_circle_style)
                             .add(Title::new("bounding circle"))

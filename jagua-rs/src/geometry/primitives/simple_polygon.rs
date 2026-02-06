@@ -5,7 +5,7 @@ use ordered_float::{NotNan, OrderedFloat};
 
 use crate::geometry::Transformation;
 use crate::geometry::convex_hull::convex_hull_from_points;
-use crate::geometry::fail_fast::{SPSurrogate, SPSurrogateConfig, compute_pole};
+use crate::geometry::fail_fast::{SPSurrogate, SPSurrogateConfig, compute_pole, smallest_enclosing_circle};
 use crate::geometry::geo_enums::GeoPosition;
 use crate::geometry::geo_traits::{
     CollidesWith, DistanceTo, SeparationDistance, Transformable, TransformableFrom,
@@ -32,6 +32,8 @@ pub struct SPolygon {
     pub diameter: f32,
     /// [Pole of inaccessibility](https://en.wikipedia.org/wiki/Pole_of_inaccessibility) represented as a circle
     pub poi: Circle,
+    /// Smallest enclosing circle of the polygon
+    pub bounding_circle: Circle,
     /// Optional surrogate representation of the polygon (subset of the original)
     pub surrogate: Option<SPSurrogate>,
 }
@@ -59,6 +61,7 @@ impl SPolygon {
         let diameter = SPolygon::calculate_diameter(points.clone());
         let bbox = SPolygon::generate_bounding_box(&points);
         let poi = SPolygon::calculate_poi(&points, diameter)?;
+        let bounding_circle = smallest_enclosing_circle(&points);
 
         Ok(SPolygon {
             vertices: points,
@@ -66,6 +69,7 @@ impl SPolygon {
             area,
             diameter,
             poi,
+            bounding_circle,
             surrogate: None,
         })
     }
@@ -156,6 +160,7 @@ impl SPolygon {
             let bbox = SPolygon::generate_bounding_box(points);
             let area = SPolygon::calculate_area(points);
             let dummy_poi = Circle::try_new(Point(f32::MAX, f32::MAX), f32::MAX).unwrap();
+            let dummy_bc = Circle::try_new(Point(f32::MAX, f32::MAX), f32::MAX).unwrap();
 
             SPolygon {
                 vertices: points.to_vec(),
@@ -163,6 +168,7 @@ impl SPolygon {
                 area,
                 diameter,
                 poi: dummy_poi,
+                bounding_circle: dummy_bc,
                 surrogate: None,
             }
         };
@@ -201,6 +207,7 @@ impl Transformable for SPolygon {
             area: _,
             diameter: _,
             poi,
+            bounding_circle,
             surrogate,
         } = self;
 
@@ -210,6 +217,7 @@ impl Transformable for SPolygon {
         });
 
         poi.transform(t);
+        bounding_circle.transform(t);
 
         //transform the surrogate
         if let Some(surrogate) = surrogate.as_mut() {
@@ -232,6 +240,7 @@ impl TransformableFrom for SPolygon {
             area: _,
             diameter: _,
             poi,
+            bounding_circle,
             surrogate,
         } = self;
 
@@ -240,6 +249,7 @@ impl TransformableFrom for SPolygon {
         }
 
         poi.transform_from(&reference.poi, t);
+        bounding_circle.transform_from(&reference.bounding_circle, t);
 
         //transform the surrogate
         if let Some(surrogate) = surrogate.as_mut() {
