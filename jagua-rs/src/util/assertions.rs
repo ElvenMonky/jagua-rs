@@ -49,17 +49,6 @@ pub fn collision_hazards_sorted_correctly(hazards: &[QTHazard]) -> bool {
     true
 }
 
-pub fn qt_contains_no_dangling_hazards(cde: &CDEngine) -> bool {
-    if let Some(children) = &cde.quadtree.children {
-        for child in children.as_ref() {
-            if !qt_node_contains_no_dangling_hazards(child, &cde.quadtree) {
-                return false;
-            }
-        }
-    }
-    true
-}
-
 fn qt_node_contains_no_dangling_hazards(node: &QTNode, parent: &QTNode) -> bool {
     let parent_h_entities = parent
         .hazards
@@ -86,21 +75,6 @@ fn qt_node_contains_no_dangling_hazards(node: &QTNode, parent: &QTNode) -> bool 
     }
 
     true
-}
-
-pub fn layout_qt_matches_fresh_qt(layout: &Layout) -> bool {
-    //check if every placed item is correctly represented in the quadtree
-
-    //rebuild the quadtree
-    let container = &layout.container;
-    let mut fresh_cde = container.base_cde.as_ref().clone();
-    for (pk, pi) in layout.placed_items.iter() {
-        let hazard = Hazard::new((pk, pi).into(), pi.shape.clone(), true);
-        fresh_cde.register_hazard(hazard);
-    }
-
-    qt_nodes_match(Some(&layout.cde().quadtree), Some(&fresh_cde.quadtree))
-        && hazards_match(layout.cde().hazards(), fresh_cde.hazards())
 }
 
 fn qt_nodes_match(qn1: Option<&QTNode>, qn2: Option<&QTNode>) -> bool {

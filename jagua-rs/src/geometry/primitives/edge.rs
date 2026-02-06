@@ -1,7 +1,6 @@
 use crate::geometry::Transformation;
 use crate::geometry::geo_traits::{CollidesWith, DistanceTo, Transformable, TransformableFrom};
-use crate::geometry::primitives::Point;
-use crate::geometry::primitives::Rect;
+use crate::geometry::primitives::{Circle, Point, Rect};
 use anyhow::Result;
 use anyhow::ensure;
 
@@ -173,6 +172,13 @@ impl CollidesWith<Rect> for Edge {
     #[inline(always)]
     fn collides_with(&self, other: &Rect) -> bool {
         other.collides_with(self)
+    }
+}
+
+impl CollidesWith<Circle> for Edge {
+    #[inline(always)]
+    fn collides_with(&self, circle: &Circle) -> bool {
+        circle.collides_with(self)
     }
 }
 

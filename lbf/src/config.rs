@@ -35,7 +35,7 @@ impl Default for LBFConfig {
                 cd_threshold: 16,
                 item_surrogate_config: SPSurrogateConfig {
                     n_pole_limits: [(100, 0.0), (20, 0.75), (10, 0.90)],
-                    n_ff_poles: 2,
+                    n_ff_poles: 5,
                     n_ff_piers: 0,
                 },
             },

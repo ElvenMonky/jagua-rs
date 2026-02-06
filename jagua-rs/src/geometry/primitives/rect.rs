@@ -2,8 +2,7 @@ use crate::geometry::geo_enums::{GeoPosition, GeoRelation};
 use crate::geometry::geo_traits::{
     AlmostCollidesWith, CollidesWith, DistanceTo, SeparationDistance,
 };
-use crate::geometry::primitives::Edge;
-use crate::geometry::primitives::Point;
+use crate::geometry::primitives::{Circle, Edge, Point};
 use crate::util::FPA;
 use anyhow::Result;
 use anyhow::ensure;
@@ -341,6 +340,13 @@ impl CollidesWith<Edge> for Rect {
         let all_positive = sides.iter().all(|&s| s > 0.0);
         let all_negative = sides.iter().all(|&s| s < 0.0);
         !(all_positive || all_negative)
+    }
+}
+
+impl CollidesWith<Circle> for Rect {
+    #[inline(always)]
+    fn collides_with(&self, circle: &Circle) -> bool {
+        circle.collides_with(self)
     }
 }
 
