@@ -1,4 +1,4 @@
-use crate::geometry::geo_traits::{CollidesWith, DistanceTo};
+use crate::geometry::geo_traits::CollidesWith;
 use crate::geometry::primitives::Rect;
 use crate::geometry::primitives::{Circle, Edge, Point};
 use std::cmp::Ordering;
@@ -20,6 +20,78 @@ pub trait QTQueryable: CollidesWith<Edge> + CollidesWith<Rect> {
     }
 }
 
+#[inline]
+fn circle_rect_intersection_area(cx: f32, cy: f32, r: f32, rect: &Rect) -> f32 {
+    let r_sq = r * r;
+
+    // Fast negative: circle doesn't touch rect
+    let cx_clamped = cx.clamp(rect.x_min, rect.x_max);
+    let cy_clamped = cy.clamp(rect.y_min, rect.y_max);
+    let d_sq = (cx - cx_clamped).powi(2) + (cy - cy_clamped).powi(2);
+    if d_sq > r_sq {
+        return 0.0;
+    }
+
+    if cx - r >= rect.x_min && cx + r <= rect.x_max && cy - r >= rect.y_min && cy + r <= rect.y_max {
+        return PI * r_sq;
+    }
+
+    // Intersection interval along x (clamped by rect)
+    let dy = (rect.y_min - cy).max(cy - rect.y_max).max(0.0);
+    let half_x = (r_sq - dy * dy).max(0.0).sqrt();
+    let ix_min = (cx - half_x).max(rect.x_min);
+    let ix_max = (cx + half_x).min(rect.x_max);
+
+    // Intersection interval along y (clamped by rect)
+    let dx = (rect.x_min - cx).max(cx - rect.x_max).max(0.0);
+    let half_y = (r_sq - dx * dx).max(0.0).sqrt();
+    let iy_min = (cy - half_y).max(rect.y_min);
+    let iy_max = (cy + half_y).min(rect.y_max);
+
+    // Corner intersection points
+    let left_half = (r_sq - (ix_min - cx).powi(2)).max(0.0).sqrt();
+    let left_y1 = (cy - left_half).max(iy_min);
+    let left_y2 = (cy + left_half).min(iy_max);
+
+    let right_half = (r_sq - (ix_max - cx).powi(2)).max(0.0).sqrt();
+    let right_y1 = (cy - right_half).max(iy_min);
+    let right_y2 = (cy + right_half).min(iy_max);
+
+    let bottom_half = (r_sq - (iy_min - cy).powi(2)).max(0.0).sqrt();
+    let bottom_x1 = (cx - bottom_half).max(ix_min);
+    let bottom_x2 = (cx + bottom_half).min(ix_max);
+
+    let top_half = (r_sq - (iy_max - cy).powi(2)).max(0.0).sqrt();
+    let top_x1 = (cx - top_half).max(ix_min);
+    let top_x2 = (cx + top_half).min(ix_max);
+
+    let rect_area = (ix_max - ix_min) * (iy_max - iy_min);
+
+    rect_area
+        - corner_correction(bottom_x1 - ix_min, left_y1 - iy_min, r)
+        - corner_correction(ix_max - bottom_x2, right_y1 - iy_min, r)
+        - corner_correction(top_x1 - ix_min, iy_max - left_y2, r)
+        - corner_correction(ix_max - top_x2, iy_max - right_y2, r)
+}
+
+/// Upper bound on the area between circular arc and rectangle corner.
+/// The exact circular segment area is r^2 * asin(h/r) - h * sqrt(r^2 - h^2),
+/// where h is half the corner diagonal. Expanding asin(x) ≈ x + x³/6 and
+/// √(1-x²) ≈ 1 - x²/2 with x = h/r, the linear terms cancel and the
+/// cubic terms combine to segment ≈ (2/3)*h^3/r = d^3/(12*r).
+/// Dropping higher-order terms underestimates the segment
+/// and overestimates this correction —
+/// giving a lower bound on the circle-rect intersection area.
+#[inline]
+fn corner_correction(base: f32, height: f32, r: f32) -> f32 {
+    if base <= 0.0 || height <= 0.0 {
+        return 0.0;
+    }
+    let d_sq = base * base + height * height;
+    let d = d_sq.sqrt();
+    0.5 * base * height - d * d_sq / (12.0 * r)
+}
+
 impl QTQueryable for Circle {
     fn guarantees_collision(&self, bbox: &Rect, haz_presence_area: f32) -> bool {
         let remaining_area = bbox.area() - haz_presence_area;
@@ -27,32 +99,13 @@ impl QTQueryable for Circle {
         if haz_presence_area <= remaining_area {
             return false;
         }
-        
+
         // Early exit: if max possible presence area can't trigger, bail
         if self.area() <= remaining_area {
             return false;
         }
 
-        // Count corners inside circle
-        let r_sq = self.radius * self.radius;
-        let corners = bbox.corners();
-        let n_inside = corners.iter()
-            .filter(|c| self.center.sq_distance_to(c) <= r_sq)
-            .count();
-
-        // Circle contains triangle built on 3 bbox corners, which is at least 0.5 area of the bbox
-        if n_inside >= 3 {
-            return true;
-        }
-
-        // radius of inscribed part of circle
-        let (r, x, y) = (self.radius, self.center.0, self.center.1);
-        let x0 = 0.5 * (bbox.x_max.min(x + r) + bbox.x_min.max(x - r));
-        let y0 = 0.5 * (bbox.y_max.min(y + r) + bbox.y_min.max(y - r));
-        let d = r - ((x - x0).powi(2) + (y - y0).powi(2)).sqrt();
-        let r0 = d.min(x0 - bbox.x_min).min(y0 - bbox.y_min).min(bbox.x_max - x0).min(bbox.y_max - y0);
-
-        PI * r0 * r0 > remaining_area
+        circle_rect_intersection_area(self.center.0, self.center.1, self.radius, bbox) > remaining_area
     }
 }
 
