@@ -74,37 +74,6 @@ impl Circle {
     pub fn diameter(&self) -> f32 {
         self.radius * 2.0
     }
-
-    /// Returns intersection points of circle with an edge (0, 1, or 2 points).
-    /// Points are ordered by distance from edge.start.
-    pub fn collides_at(&self, edge: &Edge) -> Vec<Point> {
-        // Parametric: P = start + t * (end - start), find t where |P - center|^2 = r^2
-        let dx = edge.end.0 - edge.start.0;
-        let dy = edge.end.1 - edge.start.1;
-        let fx = edge.start.0 - self.center.0;
-        let fy = edge.start.1 - self.center.1;
-
-        let a = dx * dx + dy * dy;
-        let b = 2.0 * (fx * dx + fy * dy);
-        let c = fx * fx + fy * fy - self.radius * self.radius;
-
-        let discriminant = b * b - 4.0 * a * c;
-        if discriminant < 0.0 {
-            return vec![];
-        }
-
-        let sqrt_disc = discriminant.sqrt();
-        let t1 = (-b - sqrt_disc) / (2.0 * a);
-        let t2 = (-b + sqrt_disc) / (2.0 * a);
-
-        let mut result = Vec::new();
-        for t in [t1, t2] {
-            if (0.0..=1.0).contains(&t) {
-                result.push(Point(edge.start.0 + t * dx, edge.start.1 + t * dy));
-            }
-        }
-        result
-    }
 }
 
 impl Transformable for Circle {

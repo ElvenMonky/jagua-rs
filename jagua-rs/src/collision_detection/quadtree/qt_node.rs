@@ -158,20 +158,7 @@ impl QTNode {
         collector: &mut impl HazardCollector,
     ) {
         // Condition to perform collision detection now or pass it to children:
-        let mut perform_cd_now = self.hazards.n_active_edges() <= self.cd_threshold as usize;
-
-        // Check strongest hazard for pigeonhole early-out
-        if let Some(hz) = self.hazards.first() {
-            if let QTHazPresence::Partial(p_haz) = &hz.presence {
-                if p_haz.presence_area > 0.5 
-                    && !collector.contains_key(hz.hkey)
-                    && entity.guarantees_collision(&self.bbox, p_haz.presence_area) 
-                {
-                    collector.insert(hz.hkey, hz.entity);
-                    perform_cd_now = true;
-                }
-            }
-        }
+        let perform_cd_now = self.hazards.n_active_edges() <= self.cd_threshold as usize;
 
         match (self.children.as_ref(), perform_cd_now) {
             (Some(children), false) => {
@@ -196,7 +183,7 @@ impl QTNode {
                             QTHazPresence::None => (),
                             QTHazPresence::Entire => collector.insert(hz.hkey, hz.entity),
                             QTHazPresence::Partial(p_haz) => {
-                                if (p_haz.presence_area > 0.5 && entity.guarantees_collision(&self.bbox, p_haz.presence_area)) || p_haz.collides_with(entity) {
+                                if entity.guarantees_collision(&self.bbox, p_haz.presence_area) || p_haz.collides_with(entity) {
                                     collector.insert(hz.hkey, hz.entity);
                                 }
                             }
