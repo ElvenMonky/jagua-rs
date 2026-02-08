@@ -133,10 +133,10 @@ impl QTQueryable for Circle {
     fn preferred_quadrant(&self, bbox: &Rect) -> usize {
         let c = bbox.centroid();
         match (self.center.0 >= c.0, self.center.1 >= c.1) {
-            (true, true) => 0,   // Q1 in cartesian
-            (false, true) => 1,  // Q2
-            (false, false) => 2, // Q3
-            (true, false) => 3,  // Q4
+            (true, true) => 0,
+            (false, true) => 1,
+            (false, false) => 2,
+            (true, false) => 3,
         }
     }
 }

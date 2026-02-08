@@ -9,6 +9,14 @@ use crate::geometry::geo_traits::CollidesWith;
 use crate::geometry::primitives::Rect;
 use slotmap::SlotMap;
 
+/// Traversal order for each starting quadrant: self, neighbor, neighbor, diagonal.
+const QUADRANT_ORDER: [[usize; 4]; 4] = [
+    [0, 1, 3, 2],
+    [1, 0, 2, 3],
+    [2, 3, 1, 0],
+    [3, 0, 2, 1],
+];
+
 /// Quadtree node
 #[derive(Clone, Debug)]
 pub struct QTNode {
@@ -120,10 +128,8 @@ impl QTNode {
                                 entity.collides_with_quadrants(&self.bbox, quadrants);
 
                             let pref = entity.preferred_quadrant(&self.bbox);
-                            // Rotation starting from preferred quadrant
-                            let order = [pref, (pref + 1) % 4, (pref + 3) % 4, (pref + 2) % 4];
 
-                            order.iter()
+                            QUADRANT_ORDER[pref].iter()
                                 .filter(|&&i| colliding_quadrants[i])
                                 .map(|&i| children[i].collides(entity, filter))
                                 .find(|x| x.is_some())
@@ -169,9 +175,8 @@ impl QTNode {
                 let colliding_quadrants = entity.collides_with_quadrants(&self.bbox, quadrants);
 
                 let pref = entity.preferred_quadrant(&self.bbox);
-                let order = [pref, (pref + 1) % 4, (pref + 3) % 4, (pref + 2) % 4];
 
-                order.iter()
+                QUADRANT_ORDER[pref].iter()
                     .filter(|&&i| colliding_quadrants[i])
                     .for_each(|&i| {
                         children[i].collect_collisions(entity, collector);
