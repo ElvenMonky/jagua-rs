@@ -168,13 +168,13 @@ impl QTNode {
                 let quadrants = [0, 1, 2, 3].map(|idx| &children[idx].bbox);
                 let colliding_quadrants = entity.collides_with_quadrants(&self.bbox, quadrants);
 
-                colliding_quadrants
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, collides)| **collides)
-                    .map(|(i, _)| &children[i])
-                    .for_each(|child| {
-                        child.collect_collisions(entity, collector);
+                let pref = entity.preferred_quadrant(&self.bbox);
+                let order = [pref, (pref + 1) % 4, (pref + 3) % 4, (pref + 2) % 4];
+
+                order.iter()
+                    .filter(|&&i| colliding_quadrants[i])
+                    .for_each(|&i| {
+                        children[i].collect_collisions(entity, collector);
                     });
             }
             _ => {
