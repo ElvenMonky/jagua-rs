@@ -1,4 +1,4 @@
-use crate::geometry::geo_traits::CollidesWith;
+use crate::geometry::geo_traits::{CollidesWith, DistanceTo};
 use crate::geometry::primitives::Rect;
 use crate::geometry::primitives::{Circle, Edge, Point, SPolygon};
 use std::cmp::Ordering;
