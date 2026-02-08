@@ -74,6 +74,24 @@ impl Circle {
     pub fn diameter(&self) -> f32 {
         self.radius * 2.0
     }
+
+    pub fn intersection_area_lower_bound(&self, other: &Circle) -> f32 {
+        let d = self.center.distance_to(&other.center);
+        let r1 = self.radius;
+        let r2 = other.radius;
+        
+        if d >= r1 + r2 { return 0.0; }
+        if d + r2 <= r1 { return PI * r2 * r2; }
+        if d + r1 <= r2 { return PI * r1 * r1; }
+        
+        let cos_a1 = (r1 * r1 + d * d - r2 * r2) / (2.0 * r1 * d);
+        let cos_a2 = (r2 * r2 + d * d - r1 * r1) / (2.0 * r2 * d);
+        
+        let sin_a1_cubed = (1.0 - cos_a1 * cos_a1).max(0.0).sqrt().powi(3);
+        let sin_a2_cubed = (1.0 - cos_a2 * cos_a2).max(0.0).sqrt().powi(3);
+        
+        (2.0 / 3.0) * (r1 * r1 * sin_a1_cubed + r2 * r2 * sin_a2_cubed)
+    }
 }
 
 impl Transformable for Circle {

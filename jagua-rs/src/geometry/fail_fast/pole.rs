@@ -180,7 +180,7 @@ fn net_pole_area(new_pole: &Circle, poles: &[Circle]) -> f32 {
     let total_area = new_pole.area();
     let overlap: f32 = poles
         .iter()
-        .map(|p| new_pole.intersection_area(p))
+        .map(|p| new_pole.intersection_area_lower_bound(p))
         .sum();
     (total_area - overlap).max(0.0)
 }
