@@ -119,11 +119,13 @@ impl QTNode {
                             let colliding_quadrants =
                                 entity.collides_with_quadrants(&self.bbox, quadrants);
 
-                            colliding_quadrants
-                                .iter()
-                                .enumerate()
-                                .filter(|(_, collides)| **collides)
-                                .map(|idx| children[idx.0].collides(entity, filter))
+                            let pref = entity.preferred_quadrant(&self.bbox);
+                            // Rotation starting from preferred quadrant
+                            let order = [pref, (pref + 1) % 4, (pref + 3) % 4, (pref + 2) % 4];
+
+                            order.iter()
+                                .filter(|&&i| colliding_quadrants[i])
+                                .map(|&i| children[i].collides(entity, filter))
                                 .find(|x| x.is_some())
                                 .flatten()
                         }

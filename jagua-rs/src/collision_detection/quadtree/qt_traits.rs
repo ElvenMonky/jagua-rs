@@ -25,6 +25,16 @@ pub trait QTQueryable: CollidesWith<Edge> + CollidesWith<Rect> {
     fn guarantees_collision(&self, _bbox: &Rect, _haz_presence_area: f32) -> bool {
         false
     }
+
+    /// Returns true if the entity fully encloses the given bbox.
+    /// When true, every hazard present in the corresponding node is guaranteed to collide.
+    fn fully_encloses(&self, _bbox: &Rect) -> bool {
+        false
+    }
+
+    /// Returns the preferred quadrant index (0-3) to check first during traversal.
+    /// Based on which quadrant contains the entity's representative point.
+    fn preferred_quadrant(&self, bbox: &Rect) -> usize;
 }
 
 #[inline]
@@ -114,6 +124,21 @@ impl QTQueryable for Circle {
 
         circle_rect_intersection_area(self.center.0, self.center.1, self.radius, bbox) > remaining_area
     }
+
+    fn fully_encloses(&self, bbox: &Rect) -> bool {
+        let r_sq = self.radius * self.radius;
+        bbox.corners().iter().all(|c| self.center.sq_distance_to(c) <= r_sq)
+    }
+
+    fn preferred_quadrant(&self, bbox: &Rect) -> usize {
+        let c = bbox.centroid();
+        match (self.center.0 >= c.0, self.center.1 >= c.1) {
+            (true, true) => 0,   // Q1 in cartesian
+            (false, true) => 1,  // Q2
+            (false, false) => 2, // Q3
+            (true, false) => 3,  // Q4
+        }
+    }
 }
 
 impl QTQueryable for Rect {
@@ -122,6 +147,22 @@ impl QTQueryable for Rect {
             intersection.area() > bbox.area() - haz_presence_area
         } else {
             false
+        }
+    }
+
+    fn fully_encloses(&self, bbox: &Rect) -> bool {
+        self.x_min <= bbox.x_min && self.y_min <= bbox.y_min
+            && self.x_max >= bbox.x_max && self.y_max >= bbox.y_max
+    }
+
+    fn preferred_quadrant(&self, bbox: &Rect) -> usize {
+        let mid = self.centroid();
+        let c = bbox.centroid();
+        match (mid.0 >= c.0, mid.1 >= c.1) {
+            (true, true) => 0,
+            (false, true) => 1,
+            (false, false) => 2,
+            (true, false) => 3,
         }
     }
 }
@@ -203,6 +244,17 @@ impl QTQueryable for Edge {
 
         result
     }
+
+    fn preferred_quadrant(&self, bbox: &Rect) -> usize {
+        let mid = self.centroid();
+        let c = bbox.centroid();
+        match (mid.0 >= c.0, mid.1 >= c.1) {
+            (true, true) => 0,
+            (false, true) => 1,
+            (false, false) => 2,
+            (true, false) => 3,
+        }
+    }
 }
 
 impl QTQueryable for SPolygon {
@@ -214,6 +266,24 @@ impl QTQueryable for SPolygon {
                 .any(|pole| pole.guarantees_collision(bbox, haz_presence_area))
         } else {
             false
+        }
+    }
+
+    fn fully_encloses(&self, bbox: &Rect) -> bool {
+        if let Some(surrogate) = &self.surrogate {
+            surrogate.ff_poles().iter().any(|pole| pole.fully_encloses(bbox))
+        } else {
+            false
+        }
+    }
+
+    fn preferred_quadrant(&self, bbox: &Rect) -> usize {
+        let c = bbox.centroid();
+        match (self.poi.center.0 >= c.0, self.poi.center.1 >= c.1) {
+            (true, true) => 0,
+            (false, true) => 1,
+            (false, false) => 2,
+            (true, false) => 3,
         }
     }
 }
