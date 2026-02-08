@@ -12,7 +12,7 @@ use slotmap::SlotMap;
 /// Traversal order for each starting quadrant: self, neighbor, neighbor, diagonal.
 const QUADRANT_ORDER: [[usize; 4]; 4] = [
     [0, 1, 3, 2],
-    [1, 0, 2, 3],
+    [1, 2, 0, 3],
     [2, 3, 1, 0],
     [3, 0, 2, 1],
 ];
