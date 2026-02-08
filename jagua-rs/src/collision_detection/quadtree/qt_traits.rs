@@ -34,7 +34,9 @@ pub trait QTQueryable: CollidesWith<Edge> + CollidesWith<Rect> {
 
     /// Returns the preferred quadrant index (0-3) to check first during traversal.
     /// Based on which quadrant contains the entity's representative point.
-    fn preferred_quadrant(&self, bbox: &Rect) -> usize;
+    fn preferred_quadrant(&self, _bbox: &Rect) -> usize {
+        0
+    }
 }
 
 #[inline]
@@ -274,16 +276,6 @@ impl QTQueryable for SPolygon {
             surrogate.ff_poles().iter().any(|pole| pole.fully_encloses(bbox))
         } else {
             false
-        }
-    }
-
-    fn preferred_quadrant(&self, bbox: &Rect) -> usize {
-        let c = bbox.centroid();
-        match (self.poi.center.0 >= c.0, self.poi.center.1 >= c.1) {
-            (true, true) => 0,
-            (false, true) => 1,
-            (false, false) => 2,
-            (true, false) => 3,
         }
     }
 }
