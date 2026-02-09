@@ -1,9 +1,8 @@
 use crate::collision_detection::hazards::HazardEntity;
 use crate::collision_detection::hazards::{HazKey, Hazard};
 use crate::collision_detection::quadtree::qt_partial_hazard::QTHazPartial;
-use crate::geometry::geo_enums::{GeoPosition, GeoRelation};
-use crate::geometry::geo_traits::CollidesWith;
-use crate::geometry::primitives::{Point, Rect, SPolygon};
+use crate::geometry::geo_enums::{GeoRelation};
+use crate::geometry::primitives::{Point, Rect};
 use crate::util::assertions;
 use slotmap::SlotMap;
 use std::array;
@@ -70,7 +69,7 @@ impl QTHazard {
                 if let Some(quad_index) = enclosed_hazard_quadrant {
                     //The hazard is entirely enclosed within one quadrant,
                     //For this quadrant the QTHazard is equivalent to the original hazard, the rest are None
-                    array::from_fn(|i| {
+                    return array::from_fn(|i| {
                         let presence = if i == quad_index {
                             self.presence.clone()
                         } else {
@@ -82,127 +81,254 @@ impl QTHazard {
                             hkey: self.hkey,
                             entity: self.entity,
                         }
-                    })
-                } else {
-                    //The hazard is active in multiple quadrants
-
-                    // First lets find the quadrants where edges of the partial hazard are colliding with the quadrants.
-                    // These will also be partially present hazards.
-                    let mut constricted_hazards = quadrants.map(|q| {
-                        //For every quadrant, collect the edges that are colliding with it
-                        let mut colliding_edges = None;
-                        for edge in partial_haz.edges.iter() {
-                            if q.collides_with(edge) {
-                                colliding_edges.get_or_insert_with(Vec::new).push(*edge);
-                            }
-                        }
-                        //If there are relevant edges, create a new QTHazard for this quadrant which is partially present
-                        colliding_edges.map(|edges| {
-                            // Compute clamped points for this quadrant
-                            let mut points: Vec<Point> = Vec::new();
-                            for vert in &partial_haz.points {
-                                let x = vert.0.clamp(q.x_min, q.x_max);
-                                let y = vert.1.clamp(q.y_min, q.y_max);
-                                let p = Point(x, y);
-
-                                let len = points.len();
-                                if len >= 2 {
-                                    // Collinear on vertical line - update last point's y
-                                    if points[len - 1].0 == x && points[len - 2].0 == x {
-                                        points[len - 1].1 = y;
-                                    // Collinear on horizontal line - update last point's x
-                                    } else if points[len - 1].1 == y && points[len - 2].1 == y {
-                                        points[len - 1].0 = x;
-                                    } else if points.last() != Some(&p) {
-                                        points.push(p);
-                                    }
-                                } else if points.last() != Some(&p) {
-                                    points.push(p);
-                                }
-                            }
-
-                            // Clean up wrap-around collinearity
-                            while points.len() > 1 && points.first() == points.last() {
-                                points.pop();
-                            }
-                            if points.len() >= 3 {
-                                let len = points.len();
-                                if (points[0].0 == points[len - 1].0 && points[len - 1].0 == points[len - 2].0)
-                                    || (points[0].1 == points[len - 1].1 && points[len - 1].1 == points[len - 2].1)
-                                {
-                                    points.pop();
-                                }
-                            }
-
-                            let presence_area = SPolygon::calculate_area(&points).abs();
-                            QTHazard {
-                                qt_bbox: q,
-                                presence: QTHazPresence::Partial(QTHazPartial::from_parent(
-                                    partial_haz,
-                                    edges,
-                                    points,
-                                    presence_area,
-                                )),
-                                hkey: self.hkey,
-                                entity: self.entity,
-                            }
-                        })
                     });
+                }
+                //The hazard is active in multiple quadrants
 
-                    debug_assert!(constricted_hazards.iter().filter(|h| h.is_some()).count() > 0);
+                let center = self.qt_bbox.centroid();
+                let cx = center.0;
+                let cy = center.1;
 
-                    //At this point, we have resolved all quadrants that have edges colliding with them (i.e. `Partial` presence).
-                    //What remain are the quadrants without any intersecting edges.
-                    //These can either have the hazard `Entire` or `None` presence
-                    for i in 0..4 {
-                        let quadrant = quadrants[i];
-                        if constricted_hazards[i].is_none() {
-                            //One important observation is that `Entire` and `None` present hazards will always be separated by a node with `Partial` presence.
-                            //If a neighbor is already resolved to `Entire` or `None`, this quadrant will have the same presence.
-                            //This saves quite a bit of containment checks.
+                //  Q1 | Q0
+                //  ---+---
+                //  Q2 | Q3
+                //
+                // Quadrant index from point position.
+                // Points exactly on a midline stay in `prev` quadrant,
+                // preferring adjacent over opposite.
+                let quadrant_of = |p: Point, prev: usize| -> usize {
+                    let on_v = p.0 == cx;
+                    let on_h = p.1 == cy;
+                    if on_v && on_h {
+                        return prev;
+                    }
+                    let right = if on_v { prev == 0 || prev == 3 } else { p.0 > cx };
+                    let upper = if on_h { prev == 0 || prev == 1 } else { p.1 > cy };
+                    match (right, upper) {
+                        (true, true) => 0,
+                        (false, true) => 1,
+                        (false, false) => 2,
+                        (true, false) => 3,
+                    }
+                };
 
-                            let neighbor_presences = Rect::QUADRANT_NEIGHBOR_LAYOUT[i]
-                                .map(|idx| constricted_hazards[idx].as_ref().map(|h| &h.presence));
+                let cross_v = |p1: Point, p2: Point| -> Point {
+                    let t = (cx - p1.0) / (p2.0 - p1.0);
+                    Point(cx, p1.1 + t * (p2.1 - p1.1))
+                };
+                let cross_h = |p1: Point, p2: Point| -> Point {
+                    let t = (cy - p1.1) / (p2.1 - p1.1);
+                    Point(p1.0 + t * (p2.0 - p1.0), cy)
+                };
 
-                            let none_neighbor = neighbor_presences
-                                .iter()
-                                .flatten()
-                                .any(|p| matches!(p, QTHazPresence::None));
-                            let entire_neighbor = neighbor_presences
-                                .iter()
-                                .flatten()
-                                .any(|p| matches!(p, QTHazPresence::Entire));
+                // Working storage for the 4 quadrant partial hazards
+                let mut q_haz: [QTHazPartial; 4] = array::from_fn(|_| QTHazPartial {
+                    edges: Vec::new(),
+                    ff_bbox: partial_haz.ff_bbox,
+                    points: Vec::new(),
+                    presence_area: 0.0,
+                });
 
-                            let presence = match (none_neighbor, entire_neighbor) {
-                                (true, true) => unreachable!(
-                                    "No unresolved quadrant should not have both None and Entire neighbors, this indicates a bug in the quadtree construction logic."
-                                ),
-                                (true, false) => QTHazPresence::None,
-                                (false, true) => QTHazPresence::Entire,
-                                (false, false) => {
-                                    let colliding = haz_shape.collides_with(&quadrant.centroid());
-                                    match self.entity.scope() {
-                                        GeoPosition::Interior if colliding => QTHazPresence::Entire,
-                                        GeoPosition::Exterior if !colliding => {
-                                            QTHazPresence::Entire
-                                        }
-                                        _ => QTHazPresence::None,
-                                    }
+                // === Single pass over edges ===
+                for &edge in &partial_haz.edges {
+                    let s_on_v = edge.start.0 == cx;
+                    let s_on_h = edge.start.1 == cy;
+                    let e_on_v = edge.end.0 == cx;
+                    let e_on_h = edge.end.1 == cy;
+                    let s_on_midline = s_on_v || s_on_h;
+                    let e_on_midline = e_on_v || e_on_h;
+
+                    let (sq, eq) = if !s_on_midline && !e_on_midline {
+                        // Neither on midline — standard case
+                        let sq = quadrant_of(edge.start, 0);
+                        let eq = quadrant_of(edge.end, sq);
+                        (sq, eq)
+                    } else if !e_on_midline {
+                        // Only start on midline — anchor from end
+                        let eq = quadrant_of(edge.end, 0);
+                        let sq = quadrant_of(edge.start, eq);
+                        (sq, eq)
+                    } else if !s_on_midline {
+                        // Only end on midline — anchor from start
+                        let sq = quadrant_of(edge.start, 0);
+                        let eq = quadrant_of(edge.end, sq);
+                        (sq, eq)
+                    } else if s_on_v && e_on_v {
+                        // Both on vertical midline
+                        if edge.start.1 > edge.end.1 {
+                            // Going down → interior right (Q0/Q3)
+                            let sq = if edge.start.1 > cy { 0 } else { 3 };
+                            let eq = if edge.end.1 < cy { 3 } else { 0 };
+                            (sq, eq)
+                        } else {
+                            // Going up → interior left (Q1/Q2)
+                            let sq = if edge.start.1 < cy { 2 } else { 1 };
+                            let eq = if edge.end.1 > cy { 1 } else { 2 };
+                            (sq, eq)
+                        }
+                    } else if s_on_h && e_on_h {
+                        // Both on horizontal midline
+                        if edge.start.0 > edge.end.0 {
+                            // Going left → interior below (Q2/Q3)
+                            let sq = if edge.start.0 > cx { 3 } else { 2 };
+                            let eq = if edge.end.0 < cx { 2 } else { 3 };
+                            (sq, eq)
+                        } else {
+                            // Going right → interior above (Q0/Q1)
+                            let sq = if edge.start.0 < cx { 1 } else { 0 };
+                            let eq = if edge.end.0 > cx { 0 } else { 1 };
+                            (sq, eq)
+                        }
+                    } else {
+                        // Ends on different midlines — shared corner quadrant
+                        let mid_x = if s_on_v { edge.end.0 } else { edge.start.0 };
+                        let mid_y = if s_on_h { edge.end.1 } else { edge.start.1 };
+                        let q = quadrant_of(Point(mid_x, mid_y), 0);
+                        (q, q)
+                    };
+
+                    q_haz[sq].edges.push(edge);
+
+                    let rel = sq ^ eq;
+                    if rel == 2 {
+                        let dx = edge.end.0 - edge.start.0;
+                        let dy = edge.end.1 - edge.start.1;
+                        let cross = dx * (cy - edge.start.1) - dy * (cx - edge.start.0);
+                        if cross > 0.0 {
+                            q_haz[(sq + 1) & 3].edges.push(edge);
+                        } else if cross < 0.0 {
+                            q_haz[(sq + 3) & 3].edges.push(edge);
+                        }
+                    }
+                    if rel != 0 {
+                        q_haz[eq].edges.push(edge);
+                    }
+                }
+
+                // === Single pass over vertices for points + area ===
+                let n = partial_haz.points.len();
+                debug_assert!(n > 0, "Partial hazard with no points");
+                let mut prev_p = partial_haz.points[n - 1];
+                let mut cur_q = quadrant_of(prev_p, 0);
+
+                macro_rules! push {
+                    ($qi:expr, $p:expr) => {{
+                        let qi = $qi;
+                        let p = $p;
+                        let h = &mut q_haz[qi];
+                        if h.points.last() != Some(&p) {
+                            if let Some(&last) = h.points.last() {
+                                if qi != cur_q && last.0 != p.0 && last.1 != p.1 {
+                                    h.presence_area += (last.1 + cy) * (last.0 - cx);
+                                    h.points.push(center);
+                                    h.presence_area += (cy + p.1) * (cx - p.0);
+                                } else {
+                                    h.presence_area += (last.1 + p.1) * (last.0 - p.0);
                                 }
-                            };
+                            }
+                            h.points.push(p);
+                            cur_q = qi;
+                        }
+                    }};
+                }
 
-                            constricted_hazards[i] = Some(QTHazard {
-                                qt_bbox: quadrant,
-                                presence,
-                                hkey: self.hkey,
-                                entity: self.entity,
-                            });
+                for i in 0..n {
+                    let p = partial_haz.points[i];
+                    let new_q = quadrant_of(p, cur_q);
+
+                    if new_q != cur_q {
+                        let rel = cur_q ^ new_q;
+                        if rel == 1 {
+                            let cp = cross_v(prev_p, p);
+                            push!(cur_q, cp);
+                            push!(new_q, cp);
+                        } else if rel == 3 {
+                            let cp = cross_h(prev_p, p);
+                            push!(cur_q, cp);
+                            push!(new_q, cp);
+                        } else {
+                            let dx = p.0 - prev_p.0;
+                            let dy = p.1 - prev_p.1;
+                            let cross = dx * (cy - prev_p.1) - dy * (cx - prev_p.0);
+
+                            if cross > 0.0 {
+                                let mid_q = (cur_q + 1) & 3;
+                                let cp1 = cross_v(prev_p, p);
+                                let cp2 = cross_h(prev_p, p);
+                                push!(cur_q, cp1);
+                                push!(mid_q, cp1);
+                                push!(mid_q, cp2);
+                                push!(new_q, cp2);
+                            } else if cross < 0.0 {
+                                let cp1 = cross_h(prev_p, p);
+                                let cp2 = cross_v(prev_p, p);
+                                let mid_q = (cur_q + 3) & 3;
+                                push!(cur_q, cp1);
+                                push!(mid_q, cp1);
+                                push!(mid_q, cp2);
+                                push!(new_q, cp2);
+                            } else {
+                                push!(cur_q, center);
+                                push!(new_q, center);
+                            }
                         }
                     }
 
-                    constricted_hazards
-                        .map(|h| h.expect("all constricted hazards should be resolved"))
+                    push!(cur_q, p);
+                    prev_p = p;
                 }
+
+                // === Finalize and build results ===
+                let quadrant_area = quadrants[0].area();
+
+                array::from_fn(|i| {
+                    // Close shoelace
+                    let pts = &q_haz[i].points;
+                    if pts.len() >= 2 {
+                        let last = *pts.last().unwrap();
+                        let first = pts[0];
+                        q_haz[i].presence_area += (last.1 + first.1) * (last.0 - first.0);
+                    }
+                    q_haz[i].presence_area = (0.5 * q_haz[i].presence_area).abs();
+
+                    let presence = if q_haz[i].presence_area > quadrant_area - 1e-9 {
+                        QTHazPresence::Entire
+                    } else if q_haz[i].points.is_empty() {
+                        QTHazPresence::None
+                    } else {
+                        // Compute tight ff_bbox
+                        if q_haz[i].edges.len() != partial_haz.edges.len() {
+                            let (mut x_min, mut y_min, mut x_max, mut y_max) = (
+                                f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY,
+                            );
+                            for edge in &q_haz[i].edges {
+                                x_min = x_min.min(edge.start.x()).min(edge.end.x());
+                                y_min = y_min.min(edge.start.y()).min(edge.end.y());
+                                x_max = x_max.max(edge.start.x()).max(edge.end.x());
+                                y_max = y_max.max(edge.start.y()).max(edge.end.y());
+                            }
+                            if x_min < x_max && y_min < y_max {
+                                q_haz[i].ff_bbox = Rect { x_min, y_min, x_max, y_max };
+                            }
+                        }
+                        QTHazPresence::Partial(std::mem::replace(
+                            &mut q_haz[i],
+                            QTHazPartial {
+                                edges: Vec::new(),
+                                ff_bbox: partial_haz.ff_bbox,
+                                points: Vec::new(),
+                                presence_area: 0.0,
+                            },
+                        ))
+                    };
+
+                    Self {
+                        qt_bbox: quadrants[i],
+                        presence,
+                        hkey: self.hkey,
+                        entity: self.entity,
+                    }
+                })
             }
         }
     }
