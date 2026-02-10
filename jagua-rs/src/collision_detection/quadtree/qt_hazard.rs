@@ -134,7 +134,10 @@ impl QTHazard {
                                 }
                             }
 
-                            let presence_area = SPolygon::calculate_area(&points).abs();
+                            let mut presence_area = SPolygon::calculate_area(&points).abs();
+                            if self.entity.scope() == GeoPosition::Exterior {
+                                presence_area = q.area() - presence_area
+                            };
                             QTHazard {
                                 qt_bbox: q,
                                 presence: QTHazPresence::Partial(QTHazPartial::from_parent(
