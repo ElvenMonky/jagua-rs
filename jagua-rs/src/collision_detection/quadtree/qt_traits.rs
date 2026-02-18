@@ -21,27 +21,45 @@ impl QTQueryable for Edge {
 
         let x0 = self.start.0;
         let y0 = self.start.1;
-        let dx = self.end.0 - x0;
-        let dy = self.end.1 - y0;
+        let x1 = self.end.0;
+        let y1 = self.end.1;
+
+        let (e_x_min, e_x_max) = if x0 <= x1 { (x0, x1) } else { (x1, x0) };
+        let (e_y_min, e_y_max) = if y0 <= y1 { (y0, y1) } else { (y1, y0) };
+
+        // Fast path: check bbox overlap + endpoint containment per quadrant
+        let mut result = [false; 4];
+        let mut all_determined = true;
+
+        for (i, q) in qs.iter().enumerate() {
+            if e_x_min.max(q.x_min) > e_x_max.min(q.x_max)
+                || e_y_min.max(q.y_min) > e_y_max.min(q.y_max)
+            {
+                // No bbox overlap → already false
+            } else if q.collides_with(&self.start) || q.collides_with(&self.end)
+            {
+                result[i] = true;
+            } else {
+                all_determined = false;
+            }
+        }
+
+        if all_determined {
+            return result;
+        }
+
+        // Slow path: full parametric check for undetermined quadrants
+        let dx = x1 - x0;
+        let dy = y1 - y0;
         let dxy = dx * dy;
 
         if dxy.abs() < 1e-12 {
-            // Axis-aligned (or degenerate) edge — equivalent to its bbox
-            let (x_min, x_max) = if dx >= 0.0 { (x0, x0 + dx) } else { (x0 + dx, x0) };
-            let (y_min, y_max) = if dy >= 0.0 { (y0, y0 + dy) } else { (y0 + dy, y0) };
-
-            if x_min.max(r.x_min) > x_max.min(r.x_max)
-                || y_min.max(r.y_min) > y_max.min(r.y_max)
-            {
-                return [false; 4];
-            }
-
-            let cx = (r.x_min + r.x_max) * 0.5;
-            let cy = (r.y_min + r.y_max) * 0.5;
-            let left = x_min <= cx;
-            let right = x_max >= cx;
-            let below = y_min <= cy;
-            let above = y_max >= cy;
+            let cx = qs[0].x_min;
+            let cy = qs[0].y_min;
+            let left = e_x_min <= cx;
+            let right = e_x_max >= cx;
+            let below = e_y_min <= cy;
+            let above = e_y_max >= cy;
             return [right && above, left && above, left && below, right && below];
         }
 
@@ -54,19 +72,17 @@ impl QTQueryable for Edge {
         let r_max = dxy.max(0.0).min(dx_min_dy.max(dx_max_dy)).min(dy_min_dx.max(dy_max_dx));
 
         if r_max < r_min {
-            return [false; 4];
+            return result;
         }
 
-        let dcx_dy = dx_min_dy + dx_max_dy;
-        let dcy_dx = dy_min_dx + dy_max_dx;
-        let r_min2 = r_min + r_min;
-        let r_max2 = r_max + r_max;
+        let dcx_dy = 0.5 * (dx_min_dy + dx_max_dy);
+        let dcy_dx = 0.5 * (dy_min_dx + dy_max_dx);
 
         let q = [
-            dcx_dy.max(dcy_dx) <= r_max2,
-            r_min2.max(dcy_dx) <= r_max2.min(dcx_dy),
-            r_min2 <= dcx_dy.min(dcy_dx),
-            r_min2.max(dcx_dy) <= r_max2.min(dcy_dx),
+            dcx_dy.max(dcy_dx) <= r_max,
+            r_min.max(dcy_dx) <= r_max.min(dcx_dy),
+            r_min <= dcx_dy.min(dcy_dx),
+            r_min.max(dcx_dy) <= r_max.min(dcy_dx),
         ];
 
         match (dx > 0.0, dy > 0.0) {
