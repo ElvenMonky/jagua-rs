@@ -19,13 +19,12 @@ impl QTQueryable for Edge {
     fn collides_with_quadrants(&self, r: &Rect, qs: [&Rect; 4]) -> [bool; 4] {
         debug_assert!(r.quadrants().iter().zip(qs.iter()).all(|(q, r)| *q == **r));
 
-        let x0 = self.start.0;
-        let y0 = self.start.1;
-        let x1 = self.end.0;
-        let y1 = self.end.1;
+        let bb = self.bbox();
 
-        let (e_x_min, e_x_max) = if x0 <= x1 { (x0, x1) } else { (x1, x0) };
-        let (e_y_min, e_y_max) = if y0 <= y1 { (y0, y1) } else { (y1, y0) };
+        let e_x_min = bb.x_min;
+        let e_x_max = bb.x_max;
+        let e_y_min = bb.y_min;
+        let e_y_max = bb.y_max;
 
         // Fast path: check bbox overlap + endpoint containment per quadrant
         let mut result = [false; 4];
@@ -49,8 +48,10 @@ impl QTQueryable for Edge {
         }
 
         // Slow path: full parametric check for undetermined quadrants
-        let dx = x1 - x0;
-        let dy = y1 - y0;
+        let x0 = self.start.0;
+        let y0 = self.start.1;
+        let dx = self.end.0 - x0;
+        let dy = self.end.1 - y0;
         let dxy = dx * dy;
 
         if dxy.abs() < 1e-12 {
