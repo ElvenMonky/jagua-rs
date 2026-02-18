@@ -18,13 +18,10 @@ impl QTQueryable for Rect {}
 impl QTQueryable for Edge {
     fn collides_with_quadrants(&self, r: &Rect, qs: [&Rect; 4]) -> [bool; 4] {
         debug_assert!(r.quadrants().iter().zip(qs.iter()).all(|(q, r)| *q == **r));
-
-        let bb = self.bbox();
-
-        let e_x_min = bb.x_min;
-        let e_x_max = bb.x_max;
-        let e_y_min = bb.y_min;
-        let e_y_max = bb.y_max;
+        let e_x_min = self.x_min();
+        let e_x_max = self.x_max();
+        let e_y_min = self.y_min();
+        let e_y_max = self.y_max();
 
         // Fast path: check bbox overlap + endpoint containment per quadrant
         let mut result = [false; 4];
