@@ -27,12 +27,10 @@ impl QTQueryable for Edge {
         let result = qs.map(|q| {
             let x_no_overlap = e_x_min.max(q.x_min) > e_x_max.min(q.x_max);
             let y_no_overlap = e_y_min.max(q.y_min) > e_y_max.min(q.y_max);
-            if x_no_overlap || y_no_overlap
-            {
+            if x_no_overlap || y_no_overlap {
                 // Edge is completely outside the x- or y-range of the quadrant
                 false
-            } else if q.collides_with(&self.start) || q.collides_with(&self.end)
-            {
+            } else if q.collides_with(&self.start) || q.collides_with(&self.end) {
                 // Edge has at least one end point in the quadrant
                 true
             } else {
