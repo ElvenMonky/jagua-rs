@@ -23,33 +23,40 @@ impl QTQueryable for Edge {
         let e_y_min = self.y_min();
         let e_y_max = self.y_max();
 
-        // Fast path: check bbox overlap + endpoint containment per quadrant
-        let mut result = [false; 4];
         let mut all_determined = true;
-
-        for (i, q) in qs.iter().enumerate() {
-            if e_x_min.max(q.x_min) > e_x_max.min(q.x_max)
-                || e_y_min.max(q.y_min) > e_y_max.min(q.y_max)
+        let result = qs.map(|q| {
+            let x_no_overlap = e_x_min.max(q.x_min) > e_x_max.min(q.x_max);
+            let y_no_overlap = e_y_min.max(q.y_min) > e_y_max.min(q.y_max);
+            if x_no_overlap || y_no_overlap
             {
-                // No bbox overlap → already false
+                // Edge is completely outside the x- or y-range of the quadrant
+                false
             } else if q.collides_with(&self.start) || q.collides_with(&self.end)
             {
-                result[i] = true;
+                // Edge has at least one end point in the quadrant
+                true
             } else {
+                // Undetermined, we need to check for intersections with the sides of the quadrants
                 all_determined = false;
+                false
             }
-        }
+        });
 
+        // If all quadrants are already determined, we can return early
         if all_determined {
             return result;
         }
 
-        // Slow path: full parametric check for undetermined quadrants
+        // Otherwise, we need to check for intersections with the sides of the quadrants
+        // We can exploit the fact that the quadrants have a fixed layout, and share edges.
         let x0 = self.start.0;
         let y0 = self.start.1;
         let dx = self.end.0 - x0;
         let dy = self.end.1 - y0;
         let dxy = dx * dy;
+
+        //  1    0
+        //  2    3
 
         if dxy.abs() < 1e-12 {
             let cx = qs[0].x_min;
@@ -83,12 +90,31 @@ impl QTQueryable for Edge {
             r_min.max(dcx_dy) <= r_max.min(dcy_dx),
         ];
 
-        match (dx > 0.0, dy > 0.0) {
+        let full_result = match (dx > 0.0, dy > 0.0) {
             (true, true) => [q[0], q[1], q[2], q[3]],
             (false, true) => [q[3], q[2], q[1], q[0]],
             (true, false) => [q[1], q[0], q[3], q[2]],
             (false, false) => [q[2], q[3], q[0], q[1]],
-        }
+        };
+
+        debug_assert!(
+            {
+                // make sure all quadrants which are colliding according to the individual collision check are at least
+                // also caught by the quadrant collision check
+                qs.map(|q| self.collides_with(q))
+                    .iter()
+                    .zip(full_result)
+                    .all(|(&i_c, q_c)| !i_c || q_c)
+            },
+            "{:?}, {:?}, {:?}, {:?}, {:?}",
+            self,
+            r,
+            qs,
+            full_result,
+            qs.map(|q| self.collides_with(q))
+        );
+
+        full_result
     }
 }
 
