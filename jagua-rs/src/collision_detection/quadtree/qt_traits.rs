@@ -18,58 +18,62 @@ impl QTQueryable for Rect {}
 impl QTQueryable for Edge {
     fn collides_with_quadrants(&self, r: &Rect, qs: [&Rect; 4]) -> [bool; 4] {
         debug_assert!(r.quadrants().iter().zip(qs.iter()).all(|(q, r)| *q == **r));
-        let x0 = self.start.0;
-        let x1 = self.end.0;
-        let y0 = self.start.1;
-        let y1 = self.end.1;
 
-        let dx = x1 - x0;
-        let dy = y1 - y0;
+        let x0 = self.start.0;
+        let y0 = self.start.1;
+        let dx = self.end.0 - x0;
+        let dy = self.end.1 - y0;
         let dxy = dx * dy;
 
         if dxy.abs() < 1e-12 {
-            // axis aligned edge is essentially equal to its bbox
-            if self.x_min().max(r.x_min) > self.x_max().min(r.x_max) || self.y_min().max(r.y_min) > self.y_max().min(r.y_max) {
-                return [false, false, false, false]
+            // Axis-aligned (or degenerate) edge — equivalent to its bbox
+            let (x_min, x_max) = if dx >= 0.0 { (x0, x0 + dx) } else { (x0 + dx, x0) };
+            let (y_min, y_max) = if dy >= 0.0 { (y0, y0 + dy) } else { (y0 + dy, y0) };
+
+            if x_min.max(r.x_min) > x_max.min(r.x_max)
+                || y_min.max(r.y_min) > y_max.min(r.y_max)
+            {
+                return [false; 4];
             }
+
             let cx = (r.x_min + r.x_max) * 0.5;
             let cy = (r.y_min + r.y_max) * 0.5;
+            let left = x_min <= cx;
+            let right = x_max >= cx;
+            let below = y_min <= cy;
+            let above = y_max >= cy;
+            return [right && above, left && above, left && below, right && below];
+        }
 
-            let left  = self.x_min() <= cx;
-            let right = self.x_max() >= cx;
-            let below = self.y_min() <= cy;
-            let above = self.y_max() >= cy;
-            [
-                right && above,
-                left && above,
-                left && below,
-                right && below,
-            ]
-        } else {
-            let dx_min_dy = (r.x_min - x0) * dy;
-            let dx_max_dy = (r.x_max - x0) * dy;
-            let dy_min_dx = (r.y_min - y0) * dx;
-            let dy_max_dx = (r.y_max - y0) * dx;
-            let r_min = dxy.min(0.0).max(dx_min_dy.min(dx_max_dy)).max(dy_min_dx.min(dy_max_dx));
-            let r_max = dxy.max(0.0).min(dx_min_dy.max(dx_max_dy)).min(dy_min_dx.max(dy_max_dx));
-            if r_max < r_min {
-                [false, false, false, false]
-            } else {
-                let dcx_dy = 0.5 * (dx_min_dy + dx_max_dy);
-                let dcy_dx = 0.5 * (dy_min_dx + dy_max_dx);
-                let q = [
-                    dcx_dy.max(dcy_dx) <= r_max,
-                    r_min.max(dcy_dx) <= r_max.min(dcx_dy),
-                    r_min <= dcx_dy.min(dcy_dx),
-                    r_min.max(dcx_dy) <= r_max.min(dcy_dx),
-                ];
-                match (dx > 0.0, dy > 0.0) {
-                    (true, true) => [q[0], q[1], q[2], q[3]],
-                    (false, true) => [q[3], q[2], q[1], q[0]],
-                    (true, false) => [q[1], q[0], q[3], q[2]],
-                    (false, false) => [q[2], q[3], q[0], q[1]],
-                }
-            }
+        let dx_min_dy = (r.x_min - x0) * dy;
+        let dx_max_dy = (r.x_max - x0) * dy;
+        let dy_min_dx = (r.y_min - y0) * dx;
+        let dy_max_dx = (r.y_max - y0) * dx;
+
+        let r_min = dxy.min(0.0).max(dx_min_dy.min(dx_max_dy)).max(dy_min_dx.min(dy_max_dx));
+        let r_max = dxy.max(0.0).min(dx_min_dy.max(dx_max_dy)).min(dy_min_dx.max(dy_max_dx));
+
+        if r_max < r_min {
+            return [false; 4];
+        }
+
+        let dcx_dy = dx_min_dy + dx_max_dy;
+        let dcy_dx = dy_min_dx + dy_max_dx;
+        let r_min2 = r_min + r_min;
+        let r_max2 = r_max + r_max;
+
+        let q = [
+            dcx_dy.max(dcy_dx) <= r_max2,
+            r_min2.max(dcy_dx) <= r_max2.min(dcx_dy),
+            r_min2 <= dcx_dy.min(dcy_dx),
+            r_min2.max(dcx_dy) <= r_max2.min(dcy_dx),
+        ];
+
+        match (dx > 0.0, dy > 0.0) {
+            (true, true) => [q[0], q[1], q[2], q[3]],
+            (false, true) => [q[3], q[2], q[1], q[0]],
+            (true, false) => [q[1], q[0], q[3], q[2]],
+            (false, false) => [q[2], q[3], q[0], q[1]],
         }
     }
 }
