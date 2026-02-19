@@ -124,11 +124,11 @@ mod tests {
 
     // ==================== OLD IMPLEMENTATION ====================
 
-    const OLD_Q0: u8 = 0b0001;
-    const OLD_Q1: u8 = 0b0010;
-    const OLD_Q2: u8 = 0b0100;
-    const OLD_Q3: u8 = 0b1000;
-    const OLD_ALL: u8 = 0b1111;
+    const Q0: u8 = 0b0001;
+    const Q1: u8 = 0b0010;
+    const Q2: u8 = 0b0100;
+    const Q3: u8 = 0b1000;
+    const ALL: u8 = 0b1111;
 
     fn old_collides_with_quadrants(edge: &Edge, r: &Rect, qs: [&Rect; 4]) -> [bool; 4] {
         let mut determined: u8 = 0;
@@ -152,7 +152,7 @@ mod tests {
             }
         }
 
-        if determined == OLD_ALL {
+        if determined == ALL {
             return old_bits_to_array(collides);
         }
 
@@ -168,40 +168,22 @@ mod tests {
             end: Point(c.0, r.y_max),
         };
 
-        old_half_intersect_bits(edge, &left, OLD_Q1, OLD_Q2, &mut determined, &mut collides);
-        old_half_intersect_bits(edge, &right, OLD_Q3, OLD_Q0, &mut determined, &mut collides);
-        old_half_intersect_bits(edge, &top, OLD_Q0, OLD_Q1, &mut determined, &mut collides);
-        old_half_intersect_bits(edge, &bottom, OLD_Q2, OLD_Q3, &mut determined, &mut collides);
-        old_half_intersect_bits(
-            edge,
-            &h_bisect,
-            OLD_Q1 | OLD_Q2,
-            OLD_Q0 | OLD_Q3,
-            &mut determined,
-            &mut collides,
-        );
-        old_half_intersect_bits(
-            edge,
-            &v_bisect,
-            OLD_Q2 | OLD_Q3,
-            OLD_Q0 | OLD_Q1,
-            &mut determined,
-            &mut collides,
-        );
+        half_intersect(edge, &left, Q1, Q2, &mut determined, &mut collides);
+        half_intersect(edge, &right, Q3, Q0, &mut determined, &mut collides);
+        half_intersect(edge, &top, Q0, Q1, &mut determined, &mut collides);
+        half_intersect(edge, &bottom, Q2, Q3, &mut determined, &mut collides);
+        half_intersect(edge, &h_bisect, Q1 | Q2, Q0 | Q3, &mut determined, &mut collides);
+        half_intersect(edge, &v_bisect, Q2 | Q3, Q0 | Q1, &mut determined, &mut collides);
 
-        old_bits_to_array(collides)
-    }
-
-    fn old_bits_to_array(bits: u8) -> [bool; 4] {
         [
-            bits & OLD_Q0 != 0,
-            bits & OLD_Q1 != 0,
-            bits & OLD_Q2 != 0,
-            bits & OLD_Q3 != 0,
+            collides & Q0 != 0,
+            collides & Q1 != 0,
+            collides & Q2 != 0,
+            collides & Q3 != 0,
         ]
     }
 
-    fn old_half_intersect_bits(
+    fn half_intersect(
         e1: &Edge,
         e2: &Edge,
         fst_mask: u8,
@@ -211,7 +193,7 @@ mod tests {
     ) {
         let relevant = (fst_mask | sec_mask) & !*determined;
         if relevant != 0 {
-            if let Some((_, e2_col_loc)) = old_edge_intersection_half(e1, e2) {
+            if let Some((_, e2_col_loc)) = edge_intersection_half(e1, e2) {
                 let hit_mask = match e2_col_loc {
                     OldCollisionHalf::FirstHalf => fst_mask,
                     OldCollisionHalf::SecondHalf => sec_mask,
@@ -223,7 +205,7 @@ mod tests {
         }
     }
 
-    fn old_edge_intersection_half(
+    fn edge_intersection_half(
         e1: &Edge,
         e2: &Edge,
     ) -> Option<(OldCollisionHalf, OldCollisionHalf)> {
